@@ -71,7 +71,7 @@ FF_Upscale(file, scale="2") {
 
 
 FF_Interpolate(RIFECount=1, outFPS=60) { ; Yes ChatGPT helped with this function, how could you tell?
-	global FF_Interp_Enabled, FF_Interp_Dir_In, FF_Interp_Dir_Out, FF_FileIn, inFPS
+	global FF_Interp_Enabled, FF_Interp_Dir_In, FF_Interp_Dir_Out, FF_FileIn, inFPS ; Not working too well. Please just use flowframes.
 	; No need to establish base FPS, file is already selected.
 	If !(outFPS = inFPS*2) ; If outFPS not specified, x2 inFPS.
 		outFPS := inFPS*2
@@ -309,7 +309,7 @@ global FF_Command, Chunky, c, FF_SaveSettings, FF_FileIn, FF_trimMinSS, FF_trimS
 	If (FF_Upscale)
 		FF_FileIn := FF_Upscale(FF_FileIn, 2) ; This automatically extracts and interpolates frames, and returns output folder.
 	If (FF_RIFE)
-		FF_FileIn := FF_Interpolate()
+		FF_FileIn := FF_Interpolate() ; Not working too well. Please just use flowframes.
 
 	FF_Update("NoDisplay")
 	Tooltip
@@ -357,6 +357,7 @@ FF_Reset() {
 ; Let all the above work independently, and be able to string into each other with minimal intermediate encoding.
 ; Add preset capability, either as functions within the base file or .inis next to it, or both.
 ; Add ability to string together filters with ease, selecting which ones and confirming one by one.
+; Add ability to interpret "flags" in input filename as instructions, i.e "2026_av1.mp4" would be automatically set to AV1 for output.
 ; Implement (as framework?) in AHKv2. In doing so, ensure ALL variables start with FF_
 
 ; I want to structure this better, and have a vague idea what I should do (decoupling things in functions, i.e not hardcoding how to increase/decrease values).
