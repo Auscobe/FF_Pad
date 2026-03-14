@@ -123,18 +123,19 @@ FF_CycleAudio() {
 
 
 FF_CycleMisc() { ; Should probably abstract these to separate functions, if not modify the vars directly by hotkey.
-	global FF_CRF, FF_Overwrite, fileext, FF_trimMode
-	key := GetTriggerKey()
-	KeyWait, %key%, T0.2
-	
+	global FF_CRF, FF_Overwrite, fileext, FF_trimMode	
 	If (FF_trimMode = "-ss") {
+		key := GetTriggerKey()
+		KeyWait, %key%, T0.2
 		If Errorlevel
-			FF_CRF := (FF_CRF < 1 ? 63 : --FF_CRF)
+			FF_CRF := (FF_CRF < 1 ? 63 : FF_CRF - 2)
 		else
-			FF_CRF := (FF_CRF > 62 ? 0 : ++FF_CRF)
+			FF_CRF := (FF_CRF > 62 ? 0 : FF_CRF + 2)
 		
 	}
 	else If (FF_trimMode = "-to") {
+		key := GetTriggerKey()
+		KeyWait, %key%, T0.2
 		If Errorlevel
 			FF_Overwrite := (FF_Overwrite = "-n" ? "-y" : "-n")
 		else
@@ -277,14 +278,14 @@ If !(FF_FileIn ~= "youtube.com") { ; Refactor this function later so only necess
 	FF_Audio := FF_Audios[FF_AudioIndex]
 
 	FF_trimSS := (FF_trimSecSS||FF_trimMinSS ? " -ss " FF_trimSS : "")
-	FF_trimTo := (FF_trimSecTo||FF_trimMinTo ? " " FF_trimMode " " FF_trimTo : "") ; Needs user to finish updating with -to or -t active.
+	FF_trimTo := (FF_trimSecTo||FF_trimMinTo ? " " (FF_trimMode != "-ss" ? FF_trimMode : "-to") " " FF_trimTo : "") ; If -ss, default to -to.
 	
 	FF_Resolution := (FF_Upscale ? " -vf scale=3840:2160 " : "") ; I don't intend to upscale except to 4K for now.
 	FPS := (FF_RIFE ? "-r " inFPS*2 : "") ; Little hack so I get FPS to actually double. Seems as if outFPS is local in FF_Interpolate()?
 
 	If (Type = "bat") { ; Put these two, plus clipboard, into new function FF_Export() (maybe)
 		FileDelete, %FileDir%\%FileNameExtless%.bat
-		FileAppend, ffmpeg %FF_TrimSS% -i "%fileName%" %FF_Codecs% %FF_Audio% %FF_TrimTo% "%FileNameExtless%_p.%fileExt%" %FF_Overwrite%, %FileDir%\%FileNameExtless%.bat
+		FileAppend, ffmpeg %FF_TrimSS% -i "%fileName%" %FF_Codecs% -crf %FF_CRF%%FF_Audio% %FF_TrimTo% "%FileNameExtless%_p.%fileExt%" %FF_Overwrite%, %FileDir%\%FileNameExtless%.bat
 	}
 	else If !(Type = "DisplayOnly") ; I made this before realizing another way for my issue, keeping anyway.
 		FF_Command := " -hide_banner " . (FF_Upscale ? "" : FF_trimSS) . FPS . " -i """ . fileDir . "\" . fileName . """ " . FF_Codecs . " " . FF_Custom . " " . FF_Resolution . FF_Crop . " -crf " . FF_CRF . " " . FF_Audio . (FF_Upscale && FF_trimTo != "-ss" ? "" : FF_trimTo) . " """ . FF_FileOut . """ " . FF_Overwrite
@@ -298,7 +299,7 @@ If !(FF_FileIn ~= "youtube.com") { ; Refactor this function later so only necess
 	Display_Crop := (FF_Crop ~= "1440" ? "Crop: 1440p" : "") (FF_Crop ~= "1080" ? "Crop: 1080p" : "")
 
 	If !(Type = "NoDisplay")
-	Tooltip, % FileName . "`n" . FF_Codecs . " " . FF_Audio . FF_trimSS . FF_trimTo . "`n(-crf " . FF_CRF . " " . FF_Custom . " " FF_Overwrite . FF_FileExist ")`nMode: " . FF_trimMode . "|" . Display_RIFE . "FPS: " . inFPS . "|" . fileExt . "|" . Display_Save . Display_Upscale . "|" . Display_Crop . "`n`n " . FF_Queue ; FF_Interp_Mode ; . " " . FF_Upscale
+	Tooltip, % FileName . "`n" . FF_Codecs . " " . FF_Audio . FF_trimSS . FF_trimTo . "`n(-crf " . FF_CRF . " " . FF_Custom . " " FF_Overwrite . FF_FileExist ")`nMode: " . FF_trimMode . "|" . Display_RIFE . "FPS: " . inFPS . "|" . fileExt . "|" . Display_Save . "|" . Display_Upscale . Display_Crop . "`n`n " . FF_Queue ; FF_Interp_Mode ; . " " . FF_Upscale
 	;Chunky := 
 	}
 }
@@ -361,5 +362,12 @@ FF_Reset() {
 ; Implement (as framework?) in AHKv2. In doing so, ensure ALL variables start with FF_
 
 ; I want to structure this better, and have a vague idea what I should do (decoupling things in functions, i.e not hardcoding how to increase/decrease values).
+
+Mar 13 2026 7:31:40PM
+Development has been inactive for a few weeks now. I have a few ideas for how I could proceed;
+1: Refactor this codebase some (put all variables into an object or array, whatever more compact form will work, and fix the scope of the functions.)
+2: Put it into AHKv2 without further developing this version.
+
+Right now I've decided to: Moving the bulk of the logic for command assembly from the single function FF_Update() to their respective functions that deal with that stuff to start with anyway. Then FF_Update is cleaner and the overall codebase more readable and maintainable.
 
 No need for ternary statements in the command variable, do that prior.
