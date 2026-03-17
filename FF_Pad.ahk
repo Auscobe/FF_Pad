@@ -1,3 +1,6 @@
+
+
+
 FF_FileIn := ""
 FF_FileOut := ""
 FF_FileExist := "No"
@@ -81,6 +84,9 @@ Interpolate(RIFECount=1, outFPS=60) {
 	finalFolder := rifeOut
 	runWait ffmpeg -r %outFPS% -i "%finalFolder%/frame_`%05d.png" -c:v libsvtav1 -preset 8 -r %outFPS% -pix_fmt yuv420p %fileDir%\%fileNameExtless%_.mp4 ;This function should not recompile.
 	return finalFolder
+
+
+	FF_Interp_Mode := "RIFE " . FPS . "x" . outFPS . "FPS"
 }
 */
 
@@ -118,6 +124,8 @@ FF_CycleAudio() {
 		FF_AudioIndex := ((FF_AudioIndex = 1) ? FF_Audios.MaxIndex() : --FF_AudioIndex) ; Quick cycle back
 	else
 		FF_AudioIndex := ((FF_AudioIndex = FF_Audios.MaxIndex()) ? 1 : ++FF_AudioIndex) ; A one-liner for dealing with this array.
+	
+	FF_Audio := FF_Audios[FF_AudioIndex] ; Why did I not put this here from the start?
 }
 
 
@@ -136,11 +144,13 @@ FF_CycleMisc() {
 		
 	}
 	else If (FF_trimMode = "-to") {
-		If Errorlevel
-			FF_Overwrite := (FF_Overwrite = "-n" ? "-y" : "-n")
-		else
 			fileExt := (fileExt = "mkv" ? "mp4" : "mkv")
 	}
+}
+
+FF_CycleOverwrite() {
+	global FF_Overwrite
+	FF_Overwrite := (FF_Overwrite = "-n" ? "-y" : "-n")
 }
 
 FF_CycleTrim(delta=5) {
@@ -168,6 +178,16 @@ FF_CycleTrim(delta=5) {
 			FF_trimMinTo += 1
 		}
 	}
+
+formatTime := (FF_trimMinSS > 0 & FF_trimSecSS != "") ? FF_trimMinSS : ; This needs to be blank if empty.
+formatTime .= (FF_trimSecSS > 9) ? ":" FF_trimSecSS : ":0" FF_trimSecSS
+FF_trimSS := formatTime
+formatTime := (FF_trimMinTo > 0 & FF_trimSecTo != "") ? FF_trimMinTo : ; This needs to be blank if empty.
+formatTime .= (FF_trimSecTo > 9) ? ":" FF_trimSecTo : ":0" FF_trimSecTo
+FF_trimTo := formatTime
+
+FF_trimSS := (FF_trimSecSS||FF_trimMinSS ? " -ss " FF_trimSS : "")
+FF_trimTo := (FF_trimSecTo||FF_trimMinTo ? " " FF_trimMode " " FF_trimTo : "") ; Needs user to finish updating with -to or -t active.
 }
 
 FF_CycleTrimMode() {
@@ -192,25 +212,6 @@ FF_CycleCrop(){
 	} else
 		FF_Crop := (FF_Crop = " -vf crop=2560:1440:0:0 " ? " -vf crop=1920:1080:0:0 " : " -vf crop=2560:1440:0:0 ")
 }
-
-;FF_CycleRIFE() { ; Just to get started on it here.
-;
-;		If Errorlevel
-;			RIFECount -= 1
-;		else
-;			RIFECount += 1
-;		sleep, 100
-;		
-;		; separate function probably
-;				KeyWait, Numpad5, T0.2
-;		If Errorlevel
-;			outFPS /= 2
-;		else
-;			outFPS *= 2
-;		sleep, 100
-;		
-;}
-
 
 
 FF_Queue(){ ; This function or the hotkey that calls it results in duplicate entries?
@@ -244,12 +245,6 @@ If (FF_FileIn = SelectedFile)
 SelectedFile := FF_FileIn
 If !(FF_FileIn ~= "youtube.com") {
 	SplitPath, FF_FileIn, fileName, fileDir, fileExt, fileNameExtless ; Prepare directory and name for later
-
-	;If (fileExt in jpg,jpeg,png) {
-;		run realesrgan -i "%FF_FileIn%" -o "%fileDir%\%fileNameExtless%_p.%fileExt%" -n 2x-Compact-RealESRGAN -s 2
-;		FF_Reset()
-;		tooltip
-;		return
 ;	}
 
 	RunWait cmd /c ffprobe -v 0 -of csv=p=0 -select_streams v:0 -show_entries stream=r_frame_rate "%FF_FileIn%" | clip,, hide
@@ -262,9 +257,10 @@ If !(FF_FileIn ~= "youtube.com") {
 }
 
 
+
 FF_Upscale(file, scale="2") {
 	Tooltip ; Premature reset lest it linger during whole upscale.
-	global fileDir, FF_Upscaled, FF_FileIn, FF_trimSS, FF_trimTo
+	global fileDir, FF_Upscaled, FF_FileIn, FF_trimSS, FF_trimTo,, FF_Resolution
 	FileCreateDir, %fileDir%\in
 	FileCreateDir, %fileDir%\out
 	RunWait cmd /c ffmpeg %FF_trimSS% %FF_trimTo% -i "%file%" -qscale:v 1 "%fileDir%\in\frame_`%05d.png" && realesrgan -i "%fileDir%\in" -o "%fileDir%\out" -n 2x-Compact-RealESRGAN -s %scale% -j 3:3:3 ; Consider having FFmpeg -vf "fps=%inFPS%" or so for extraction.
@@ -287,32 +283,9 @@ FF_CycleChunky() {
 FF_Update(Type=""){ ; Jan 22 2026 6:03:55PM Formerly FF_Assemble, "Update" reflects that it updates definitions AND the display.
 global FF_Audios, FF_AudioIndex, FF_Codecs, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_trimSS, FF_trimTo, FF_trimMode, FF_Interp, FF_Interp_Recycle, FF_Command, FPS, outFPS, FF_Upscale, FF_FileIn, FF_FileOut, fileName, RIFECount, fileExt, fileNameExtless, fileDir, newName, FF_Queue, FF_FileExist, FF_CRF, FF_SaveSettings, FF_Custom, FF_Upscale, FF_Crop
 
-;If !(fileExt = "mp4" || fileExt = "mkv" || fileExt = "webm") and !WinActive("ahk_group Browser") ; This will be obsolete when I integrate more filetype handling.
-;	return
-
-formatTime := (FF_trimMinSS > 0 & FF_trimSecSS != "") ? FF_trimMinSS : ; This needs to be blank if empty.
-formatTime .= (FF_trimSecSS > 9) ? ":" FF_trimSecSS : ":0" FF_trimSecSS
-FF_trimSS := formatTime
-formatTime := (FF_trimMinTo > 0 & FF_trimSecTo != "") ? FF_trimMinTo : ; This needs to be blank if empty.
-formatTime .= (FF_trimSecTo > 9) ? ":" FF_trimSecTo : ":0" FF_trimSecTo
-FF_trimTo := formatTime
-
-
-;FF_Command := FF_Codecs . " " . FF_Audio . " " . (FF_trimSecSS != 0||FF_trimMinSS != 0 ? " -ss " FF_trim : "")
-
-
 If !(FF_FileIn ~= "youtube.com") { ; Refactor this function later so only necessary code is run per situation (file or URL).
-	FF_Interp_Mode := "RIFE " . FPS . "x" . outFPS . "FPS"
-	; FF_Interp
 	FF_FileOut := fileDir . "\" . fileNameExtless . "_p." . fileExt
 
-	FF_Audio := FF_Audios[FF_AudioIndex]
-	FF_Codec_Extras_V := (FF_Codecs ~= "vp9" ? "-b:v 0 -tile-columns 2 -frame-parallel 1 -row-mt 1 -map 0:s?" : "-map 0:s? -c:s copy")
-
-	FF_trimSS := (FF_trimSecSS||FF_trimMinSS ? " -ss " FF_trimSS : "")
-	FF_trimTo := (FF_trimSecTo||FF_trimMinTo ? " " FF_trimMode " " FF_trimTo : "") ; Needs user to finish updating with -to or -t active.
-	
-	FF_Resolution := (FF_Upscale ? " -vf scale=3840:2160 " : "") ; I don't intend to upscale except to 4K for now.
 
 	If (Type = "bat") { ; Put these two, plus clipboard, into new function FF_Export() (maybe)
 		FileDelete, %FileDir%\%FileNameExtless%.bat
