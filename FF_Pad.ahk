@@ -236,12 +236,12 @@ SelectedFile := FF_FileIn
 If !(FF_FileIn ~= "youtube.com") {
 	SplitPath, FF_FileIn, fileName, fileDir, fileExt, fileNameExtless ; Prepare directory and name for later
 
-	;If (fileExt in jpg,jpeg,png) {
-;		run realesrgan -i "%FF_FileIn%" -o "%fileDir%\%fileNameExtless%_p.%fileExt%" -n 2x-Compact-RealESRGAN -s 2
-;		FF_Reset()
-;		tooltip
-;		return
-;	}
+	If (fileExt in jpg,jpeg,png) {
+		;run realesrgan -i "%FF_FileIn%" -o "%fileDir%\%fileNameExtless%_p.%fileExt%" -n 2x-Compact-RealESRGAN -s 2
+		;FF_Reset()
+		;tooltip
+		;return
+	}
 
 	RunWait cmd /c ffprobe -v 0 -of csv=p=0 -select_streams v:0 -show_entries stream=r_frame_rate "%FF_FileIn%" | clip,, hide
 	ClipWait, 0.3
@@ -365,9 +365,10 @@ FF_Reset() {
 
 Mar 13 2026 7:31:40PM
 Development has been inactive for a few weeks now. I have a few ideas for how I could proceed;
-1: Refactor this codebase some (put all variables into an object or array, whatever more compact form will work, and fix the scope of the functions.)
+1: Refactor this codebase some (put all variables into an object or array, whatever more compact form will work, and fix the scope of the functions.) so that v2 conversion is pure translation, meaning less mental overhead.
 2: Put it into AHKv2 without further developing this version.
 
 Right now I've decided to: Moving the bulk of the logic for command assembly from the single function FF_Update() to their respective functions that deal with that stuff to start with anyway. Then FF_Update is cleaner and the overall codebase more readable and maintainable.
+(Mar 16 2026 9:34:12PM But I still can't make up my mind confidently without feedback from more experienced devs.)
 
 No need for ternary statements in the command variable, do that prior.
