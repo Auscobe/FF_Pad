@@ -1,4 +1,16 @@
-
+FF_File := {
+	Inputs: [],
+	Output: "",
+	Exist: "No",
+	Overwrite: "-n"
+	Codecs: "-c:v libsvtav1 -preset 8 -map 0:v",
+	RateControl: {
+		Mode: "CRF",
+		CRF: 34,
+		BitrateVideo: "5" ; Add "K" in actual assembly, so it's easy to adjust prior.
+		BitrateAudio: "320K"
+	}
+}
 
 
 FF_FileIn := ""
