@@ -3,7 +3,9 @@ FF_File := {
 	Output: "",
 	Exist: "No",
 	Overwrite: "-n"
-	Codecs: "-c:v libsvtav1 -preset 8 -map 0:v",
+	CodecVideo: "libsvtav1",
+	CodecAudio: "opus",
+	CodecVideoPreset: 8,
 	RateControl: {
 		Mode: "CRF",
 		CRF: 34,
