@@ -3,14 +3,24 @@ FF_FileOut := ""
 FF_FileExist := "No"
 FF_Overwrite := "-n"
 
-FF_Codecs := "-c:v libsvtav1 -preset 8 -map 0:v"
-FF_Audios := ["-c:a copy -map 0:a?", "-an", "-c:a copy -map 0:a:0", "-c:a copy -map 0:a:2", "-filter_complex amerge=inputs=2", "-map 0:a?", "-c:a aac -map 0:a?"]
+FF_VideoCodecList := ["-c:v libsvtav1 -preset 8 -map 0:v", "-c:v av1_amf -map 0:v", "-c:v libvpx-vp9 -map 0:v", "-c:v copy -map 0:v"]
+FF_VideoCodecIndex := 1
+FF_VideoCodecSelection := FF_VideoCodecList[1]
 FF_CRF := 34
+
+FF_AudioCodecList := ["-c:a copy -map 0:a?", "-an", "-c:a copy -map 0:a:0", "-c:a copy -map 0:a:2", "-filter_complex amerge=inputs=2", "-map 0:a?", "-c:a aac -map 0:a?"]
+FF_AudioCodecIndex := 1
+FF_AudioCodecSelection := FF_AudioCodecList[1]
+
+
 FF_Custom := ""
 FF_Command := ""
 
-FF_AudioIndex := 1
-; Audio options: Copy, no audio, track 1, track 3, merge tracks 1/2.
+
+
+
+
+
 
 FF_trimMinSS := 0
 FF_trimSecSS := 0
@@ -40,23 +50,8 @@ FF_QueueList := ""
 FF_SaveSettings := 0
 
 
-FF_Active() { ; Jan 22 2026 5:23:40PM I recognize the possibility of wanting to configure (not activate) XX_Pad from another window, and consider it an edge case.
+FF_Active() { ; Jan 22 2026 5:23:40PM I recognize the possibility of wanting to activate/configure XX_Pad from another window, and will do that later for i.e youtube.
 	return WinActive("ahk_group FileManager") and (FF_FileIn != "")
-}
-
-
-GetTriggerKey(hk := "") {
-    if (hk = "")
-        hk := A_ThisHotkey
-
-    ; Remove modifiers
-    hk := RegExReplace(hk, "[#!\^\+<>]")
-
-    ; If chord, take the last key
-    if InStr(hk, "&")
-        hk := Trim(StrSplit(hk, "&").Pop())
-
-    return Trim(hk)
 }
 
 
@@ -92,62 +87,44 @@ FF_Interpolate(RIFECount=1, outFPS=60) { ; Yes ChatGPT helped with this function
 }
 
 
-FF_CycleVideo() {
-global FF_FileIn, FFPad_Window,fileext, FF_Codecs, FFPad_Window
-	;If (fileext ~= "jpg") { ; This is to be separated into its own thing, IMG_Pad? Mar 08 2026 11:40:44PM nah, just not dealing with non-videos yet.
-	;	name := RegExReplace(FF_FileIn, "(.*)\.", "$1_a.")
-	;	name := RegExReplace(name, "\.(jpeg|png)$", ".jpg") ; "\.(jpeg|png)$" for doing both, but some images won't be able to be jpg.
-	;	run realesrgan -i "%FF_FileIn%" -o "%name%" -n 4x-Compact-RealESRGAN -s 4
-	;	return
-	;}
-	key := GetTriggerKey()
-	KeyWait, %key%, T0.2
-	If Errorlevel
-		FF_Codecs := "-c:v copy -map 0:v"
-	else
-		FF_Codecs := ((FF_Codecs = "-c:v av1_amf") ? "-c:v libsvtav1 -preset 8 -map 0:v" : "-c:v av1_amf")
+FF_CycleVideo(offset=1) {
+	global FF_VideoCodecList, FF_VideoCodecIndex, FF_VideoCodecSelection
+	FF_VideoCodecIndex += offset
+	FF_VideoCodecIndex := (FF_VideoCodecIndex < 1 ? FF_VideoCodecList.MaxIndex() : (FF_VideoCodecIndex > FF_VideoCodecList.MaxIndex() ? 1 : FF_VideoCodecIndex))
+	FF_VideoCodecSelection := FF_VideoCodecList[FF_VideoCodecIndex]
 }
 
 
-FF_CycleAudio() {
-	global FF_AudioIndex, FF_Audios
-	key := GetTriggerKey()
-	KeyWait, %key%, T0.2
-	If Errorlevel
-		FF_AudioIndex := ((FF_AudioIndex = 1) ? FF_Audios.MaxIndex() : --FF_AudioIndex) ; Quick cycle back
-	else
-		FF_AudioIndex := ((FF_AudioIndex = FF_Audios.MaxIndex()) ? 1 : ++FF_AudioIndex) ; A one-liner for dealing with this array.
+FF_CycleAudio(offset=1) {
+	global FF_AudioCodecList, FF_AudioCodecIndex, FF_AudioCodecSelection
+	FF_AudioCodecIndex += offset
+	FF_AudioCodecIndex := (FF_AudioCodecIndex < 1 ? FF_AudioCodecList.MaxIndex() : (FF_AudioCodecIndex > FF_AudioCodecList.MaxIndex() ? 1 : FF_AudioCodecIndex))
+	FF_AudioCodecSelection := FF_AudioCodecList[FF_AudioCodecIndex]
 }
 
 
+FF_CycleCRF(offset=1) {
+	global FF_CRF
+	FF_CRF += offset
+	FF_CRF := (FF_CRF < 0 ? 63 : (FF_CRF > 63 ? 0 : FF_CRF))
+}
 
+FF_CycleOverwrite() {
+	global FF_Overwrite
+	FF_Overwrite := (FF_Overwrite = "-n" ? "-y" : "-n")
+}
 
-FF_CycleMisc() { ; Should probably abstract these to separate functions, if not modify the vars directly by hotkey.
-	global FF_CRF, FF_Overwrite, fileext, FF_trimMode	
+FF_CycleFileExt() {
+	global fileExt
+	fileExt := (fileExt = "mkv" ? "mp4" : "mkv")
+}
+
+	
+
+FF_CycleTrim(offset=5) {
+	global FF_trimMode, FF_trimSecSS, FF_trimMinSS, FF_trimSecTo, FF_trimMinTo, FF_trimSS, FF_trimTo
 	If (FF_trimMode = "-ss") {
-		key := GetTriggerKey()
-		KeyWait, %key%, T0.2
-		If Errorlevel
-			FF_CRF := (FF_CRF < 1 ? 63 : FF_CRF - 2)
-		else
-			FF_CRF := (FF_CRF > 62 ? 0 : FF_CRF + 2)
-		
-	}
-	else If (FF_trimMode = "-to") {
-		key := GetTriggerKey()
-		KeyWait, %key%, T0.2
-		If Errorlevel
-			FF_Overwrite := (FF_Overwrite = "-n" ? "-y" : "-n")
-		else
-			fileExt := (fileExt = "mkv" ? "mp4" : "mkv")
-	}
-}
-
-
-FF_CycleTrim(delta=5) {
-	global FF_trimMode, FF_trimSecSS, FF_trimMinSS, FF_trimSecTo, FF_trimMinTo
-	If (FF_trimMode = "-ss") {
-		FF_trimSecSS += delta
+		FF_trimSecSS += offset
 		if (FF_trimSecSS < 0) {
 			FF_trimSecSS := 55
 			if (FF_trimMinSS > 0)
@@ -158,7 +135,7 @@ FF_CycleTrim(delta=5) {
 			FF_trimMinSS ++ 1
 		}
 	} else If (FF_trimMode ~= "-t") { ; Account for both -t and -to
-		FF_trimSecTo += delta
+		FF_trimSecTo += offset
 		if (FF_trimSecTo < 0) {
 			FF_trimSecTo := 55
 			if (FF_trimMinTo > 0)
@@ -169,31 +146,28 @@ FF_CycleTrim(delta=5) {
 			FF_trimMinTo += 1
 		}
 	}
+
+	formatTime := (FF_trimMinSS > 0 & FF_trimSecSS != "") ? FF_trimMinSS : ; This needs to be blank if empty.
+	formatTime .= (FF_trimSecSS > 9) ? ":" FF_trimSecSS : ":0" FF_trimSecSS
+	FF_trimSS := formatTime
+	formatTime := (FF_trimMinTo > 0 & FF_trimSecTo != "") ? FF_trimMinTo : ; This needs to be blank if empty.
+	formatTime .= (FF_trimSecTo > 9) ? ":" FF_trimSecTo : ":0" FF_trimSecTo
+	FF_trimTo := formatTime
+
+	FF_trimSS := (FF_trimSecSS||FF_trimMinSS ? " -ss " FF_trimSS : "")
+	FF_trimTo := (FF_trimSecTo||FF_trimMinTo ? " " (FF_trimMode != "-ss" ? FF_trimMode : "-to") " " FF_trimTo : "") ; If -ss, default to -to.
 }
 
 
-FF_CycleTrimMode() {
+FF_CycleTrimMode(mode="") { ; Reminder: -to is absolute, -t is relative to -ss.
 	global FF_trimMode
-	key := GetTriggerKey()
-	KeyWait, %key%, T0.3
-	If Errorlevel {
-		FF_trimMode = "-t"
-		KeyWait, %key%, T0.1
-		sleep, 100
-	}
-	else
-		FF_trimMode := (FF_trimMode != "-ss") ? "-ss" : "-to" ; Clean way to account for -ss and -t.
+	FF_trimMode := (mode != "" ? mode : (FF_trimMode != "-ss" ? "-ss" : "-to")) ; If mode specified, set to that, else toggle.
 }
 
 
-FF_CycleCrop(){
+FF_CycleCrop(mode=""){ ; Will fix this jank later when I expand upon it.
 	global FF_Crop
-	key := GetTriggerKey()
-	KeyWait, %key%, T0.3
-	If Errorlevel {
-		FF_Crop := ""
-	} else
-		FF_Crop := (FF_Crop = " -vf crop=2560:1440:0:0 " ? " -vf scale=3840x2160:flags=lanczos " : " -vf crop=2560:1440:0:0 ")
+	FF_Crop := (mode != "" ? mode : (FF_Crop = " -vf crop=2560:1440:0:0 " ? " -vf scale=3840x2160:flags=lanczos " : " -vf crop=2560:1440:0:0 "))
 }
 
 
@@ -216,94 +190,85 @@ FF_ToggleSave() {
 
 
 FF_SelectFile(){
-global FF_FileIn, FF_FileOut, fileName, fileDir, fileExt, fileNameExtless, outFPS, inFPS, SelectedFile
+	global FF_FileIn, FF_FileOut, fileName, fileDir, fileExt, fileNameExtless, outFPS, inFPS, SelectedFile
 
-If WinActive("ahk_exe Dopus.exe") or WinActive("ahk_exe Everything.exe") {
-	clipboard := "" ; Very important to first empty clipboard to avoid faulty checks later from existing contents!
-	sleep, 30
-	Send ^+c
-	ClipWait, 0.3
-	FF_FileIn := (WinActive("ahk_class EVERYTHING") ? Trim(FF_FileIn, """") : clipboard) ; Everything.exe adds quotes anyway.
-}
-
-If (FF_FileIn = SelectedFile)
-	return ; If file already selected, end here.
-
-SelectedFile := FF_FileIn
-If !(FF_FileIn ~= "youtube.com") {
-	SplitPath, FF_FileIn, fileName, fileDir, fileExt, fileNameExtless ; Prepare directory and name for later
-
-	If (fileExt in jpg,jpeg,png) {
-		;run realesrgan -i "%FF_FileIn%" -o "%fileDir%\%fileNameExtless%_p.%fileExt%" -n 2x-Compact-RealESRGAN -s 2
-		;FF_Reset()
-		;tooltip
-		;return
+	If WinActive("ahk_exe Dopus.exe") or WinActive("ahk_exe Everything.exe") {
+		clipboard := "" ; Very important to first empty clipboard to avoid faulty checks later from existing contents!
+		sleep, 30
+		Send ^+c
+		ClipWait, 0.3
+		FF_FileIn := (WinActive("ahk_class EVERYTHING") ? Trim(FF_FileIn, """") : clipboard) ; Everything.exe adds quotes anyway.
 	}
 
-	RunWait cmd /c ffprobe -v 0 -of csv=p=0 -select_streams v:0 -show_entries stream=r_frame_rate "%FF_FileIn%" | clip,, hide
-	ClipWait, 0.3
-	
-	p := StrSplit(clipboard, "/")
-	inFPS := Round((p[1] + 0) / RegExReplace(p[2], "`r`n", "")) ; I love using as little code/few lines as possible. May be noob programmer thing, so be it.
-	outFPS := inFPS ; Can format input/output framerate (in event of interpolating) as input>output, e.g 30>60.
-	}
+	If (FF_FileIn = SelectedFile)
+		return ; If file already selected, end here.
+
+	SelectedFile := FF_FileIn
+	If !(FF_FileIn ~= "youtube.com") {
+		SplitPath, FF_FileIn, fileName, fileDir, fileExt, fileNameExtless ; Prepare directory and name for later
+
+		If (fileExt in jpg,jpeg,png) {
+			;run realesrgan -i "%FF_FileIn%" -o "%fileDir%\%fileNameExtless%_p.%fileExt%" -n 2x-Compact-RealESRGAN -s 2
+			;FF_Reset()
+			;tooltip
+			;return
+		}
+
+		RunWait cmd /c ffprobe -v 0 -of csv=p=0 -select_streams v:0 -show_entries stream=r_frame_rate "%FF_FileIn%" | clip,, hide
+		ClipWait, 0.3
+		
+		p := StrSplit(clipboard, "/")
+		inFPS := Round((p[1] + 0) / RegExReplace(p[2], "`r`n", "")) ; I love using as little code/few lines as possible. May be noob programmer thing, so be it.
+		outFPS := inFPS ; Can format input/output framerate (in event of interpolating) as input>output, e.g 30>60.
+		}
 }
 
 
 FF_Update(Type=""){ ; Jan 22 2026 6:03:55PM Formerly FF_Assemble, "Update" reflects that it updates definitions AND the display.
-global FF_Audios, FF_AudioIndex, FF_Codecs, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_trimSS, FF_trimTo, FF_trimMode, FF_Interp, FF_Interp_Recycle, FF_Command, FPS, outFPS, FF_Upscale, FF_FileIn, FF_FileOut, fileName, RIFECount, fileExt, fileNameExtless, fileDir, newName, FF_Queue, FF_FileExist, FF_CRF, FF_SaveSettings, FF_Custom, FF_Upscale, FF_Crop, FF_RIFE
+	global FF_AudioCodecList, FF_AudioCodecIndex, FF_VideoCodecList, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_trimSS, FF_trimTo, FF_trimMode, FF_Interp, FF_Interp_Recycle, FF_Command, FPS, outFPS, FF_Upscale, FF_FileIn, FF_FileOut, fileName, RIFECount, fileExt, fileNameExtless, fileDir, newName, FF_Queue, FF_FileExist, FF_CRF, FF_SaveSettings, FF_Custom, FF_Upscale, FF_Crop, FF_RIFE, FF_VideoCodecSelection, FF_AudioCodecSelection, FF_trimSS, FF_trimTo
 
-;If !(fileExt = "mp4" || fileExt = "mkv" || fileExt = "webm") and !WinActive("ahk_group Browser") ; This will be obsolete when I integrate more filetype handling.
-;	return
-
-formatTime := (FF_trimMinSS > 0 & FF_trimSecSS != "") ? FF_trimMinSS : ; This needs to be blank if empty.
-formatTime .= (FF_trimSecSS > 9) ? ":" FF_trimSecSS : ":0" FF_trimSecSS
-FF_trimSS := formatTime
-formatTime := (FF_trimMinTo > 0 & FF_trimSecTo != "") ? FF_trimMinTo : ; This needs to be blank if empty.
-formatTime .= (FF_trimSecTo > 9) ? ":" FF_trimSecTo : ":0" FF_trimSecTo
-FF_trimTo := formatTime
+	;If !(fileExt = "mp4" || fileExt = "mkv" || fileExt = "webm") and !WinActive("ahk_group Browser") ; This will be obsolete when I integrate more filetype handling.
+	;	return
 
 
-;FF_Command := FF_Codecs . " " . FF_Audio . " " . (FF_trimSecSS != 0||FF_trimMinSS != 0 ? " -ss " FF_trim : "")
+	;FF_Command := FF_VideoCodecList . " " . FF_Audio . " " . (FF_trimSecSS != 0||FF_trimMinSS != 0 ? " -ss " FF_trim : "")
 
 
-If !(FF_FileIn ~= "youtube.com") { ; Refactor this function later so only necessary code is run per situation (file or URL).
-	FF_Interp_Mode := "RIFE " . FPS . "x" . outFPS . "FPS"
-	; FF_Interp
-	FF_FileOut := fileDir . "\" . fileNameExtless . "_p." . fileExt
+	If !(FF_FileIn ~= "youtube.com") { ; Refactor this function later so only necessary code is run per situation (file or URL).
+		FF_Interp_Mode := "RIFE " . FPS . "x" . outFPS . "FPS"
+		; FF_Interp
+		FF_FileOut := fileDir . "\" . fileNameExtless . "_p." . fileExt
 
-	FF_Audio := FF_Audios[FF_AudioIndex]
+		
+		FF_Resolution := (FF_Upscale ? " -vf scale=3840:2160 " : "") ; I don't intend to upscale except to 4K for now.
+		FPS := (FF_RIFE ? "-r " inFPS*2 : "") ; Little hack so I get FPS to actually double. Seems as if outFPS is local in FF_Interpolate()?
 
-	FF_trimSS := (FF_trimSecSS||FF_trimMinSS ? " -ss " FF_trimSS : "")
-	FF_trimTo := (FF_trimSecTo||FF_trimMinTo ? " " (FF_trimMode != "-ss" ? FF_trimMode : "-to") " " FF_trimTo : "") ; If -ss, default to -to.
-	
-	FF_Resolution := (FF_Upscale ? " -vf scale=3840:2160 " : "") ; I don't intend to upscale except to 4K for now.
-	FPS := (FF_RIFE ? "-r " inFPS*2 : "") ; Little hack so I get FPS to actually double. Seems as if outFPS is local in FF_Interpolate()?
-
-	If (Type = "bat") { ; Put these two, plus clipboard, into new function FF_Export() (maybe)
-		FileDelete, %FileDir%\%FileNameExtless%.bat
-		FileAppend, ffmpeg %FF_TrimSS% -i "%fileName%" %FF_Codecs% -crf %FF_CRF% %FF_Audio% %FF_TrimTo% "%FileNameExtless%_p.%fileExt%" %FF_Overwrite%, %FileDir%\%FileNameExtless%.bat
-	}
-	else If !(Type = "DisplayOnly") ; I made this before realizing another way for my issue, keeping anyway.
-		FF_Command := " -hide_banner " . (FF_Upscale ? "" : FF_trimSS) . FPS . " -i """ . fileDir . "\" . fileName . """ " . FF_Codecs . " " . FF_Custom . " " . FF_Resolution . FF_Crop . " -crf " . FF_CRF . " " . FF_Audio . (FF_Upscale && FF_trimTo != "-ss" ? "" : FF_trimTo) . " """ . FF_FileOut . """ " . FF_Overwrite
+		FF_Crop := ""
+		If (Type = "bat") { ; Put these two, plus clipboard, into new function FF_Export() (maybe)
+			FileDelete, %FileDir%\%FileNameExtless%.bat
+			FileAppend, ffmpeg %FF_TrimSS% -i "%fileName%" %FF_VideoCodecList% -crf %FF_CRF% %FF_AudioCodecSelection% %FF_TrimTo% "%FileNameExtless%_p.%fileExt%" %FF_Overwrite%, %FileDir%\%FileNameExtless%.bat
+		}
+		else If !(Type = "DisplayOnly") ; I made this before realizing another way for my issue, keeping anyway.
+			FF_Command := " -hide_banner " . (FF_Upscale ? "" : FF_trimSS) . FPS . " -i """ . fileDir . "\" . fileName . """ " . FF_VideoCodecList . " " . FF_Custom . " " . FF_Resolution . FF_Crop . " -crf " . FF_CRF . " " . FF_AudioCodecSelection . (FF_Upscale && FF_trimTo != "-ss" ? "" : FF_trimTo) . " """ . FF_FileOut . """ " . FF_Overwrite
 
 
 
-	FF_FileExist := (FileExist(FF_FileOut) ? "*" : "")
-	Display_RIFE := (FF_RIFE ? " RIFEs: " FF_RIFE "," : "")
-	Display_Save := (FF_SaveSettings ? " Save: On" : " Save: Off")
-	Display_Upscale := (FF_Upscale ? " Upscale: 4K" : " Upscale: Off")
-	Display_Crop := (FF_Crop ~= "1440" ? "|Crop: 1440p" : "|Crop: Off") (FF_Crop ~= "1080" ? "|Crop: 1080p" : "|Crop: Off")
+		FF_FileExist := (FileExist(FF_FileOut) ? "*" : "")
+		Display_RIFE := (FF_RIFE ? "RIFEs: " FF_RIFE "," : "")
+		Display_Save := (FF_SaveSettings ? "Save: On" : "Save: Off")
+		Display_Upscale := (FF_Upscale ? "Upscale: 4K" : "Upscale: Off")
+		Display_Crop := (FF_Crop ~= "1440" ? "|Crop: 1440p" : "|Crop: Off") (FF_Crop ~= "1080" ? "|Crop: 1080p" : "|Crop: Off")
 
-	If !(Type = "NoDisplay")
-	Tooltip, % FileName . "`n" . FF_Codecs . " " . FF_Audio . FF_trimSS . FF_trimTo . "`n(-crf " . FF_CRF . " " . FF_Custom . " " FF_Overwrite . FF_FileExist ")`nMode: " . FF_trimMode . "|" . Display_RIFE . "FPS: " . inFPS . "|" . fileExt . "|" . Display_Save . "|" . Display_Upscale . Display_Crop . "`n`n " . FF_Queue ; FF_Interp_Mode ; . " " . FF_Upscale
-	;Chunky := 
-	}
+
+		If !(Type = "NoDisplay")
+		Tooltip, % FileName . "`n" . FF_VideoCodecSelection . " " . FF_AudioCodecSelection . FF_trimSS . FF_trimTo . "`n(-crf " . FF_CRF . " " . FF_Custom . " " FF_Overwrite . FF_FileExist ")`nMode: " . FF_trimMode . "|" . Display_RIFE . "FPS: " . inFPS . "|" . fileExt . "|" . Display_Save . "|" . Display_Upscale . Display_Crop . "`n`n " . FF_Queue ; FF_Interp_Mode ; . " " . FF_Upscale
+		;Chunky := 
+		}
 }
 
 
 FF_Run() {
-global FF_Command, Chunky, c, FF_SaveSettings, FF_FileIn, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_TrimMode, FF_CRF, FF_Upscale, FF_RIFE, fileDir, FF_Interp_Dir_In, FF_Interp_Dir_Out
+	global FF_Command, Chunky, c, FF_SaveSettings, FF_FileIn, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_TrimMode, FF_CRF, FF_Upscale, FF_RIFE, fileDir, FF_Interp_Dir_In, FF_Interp_Dir_Out
 	If (FF_Upscale)
 		FF_FileIn := FF_Upscale(FF_FileIn, 2) ; This automatically extracts and interpolates frames, and returns output folder.
 	If (FF_RIFE)
@@ -329,18 +294,24 @@ global FF_Command, Chunky, c, FF_SaveSettings, FF_FileIn, FF_trimMinSS, FF_trimS
 
 
 FF_Reset() {
-	global FF_FileIn, FF_TrimMode, FF_SaveSettings, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_CRF, FF_Overwrite, FF_Upscale
+	global FF_FileIn, FF_TrimMode, FF_SaveSettings, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_CRF, FF_Overwrite, FF_Upscale, FF_AudioCodecIndex, FF_VideoCodecIndex, fileExt, FF_VideoCodecList, FF_AudioCodecList, FF_VideoCodecSelection, FF_AudioCodecSelection, FF_trimSS, FF_trimTo
 
 	FF_FileIn := "" ; Always reset this, lest selection break after confirming.
 	FF_TrimMode := "-ss" ; Resetting this feels better for me.
 	If !(FF_SaveSettings) {
-	FF_trimMinSS := 0 ; Reset trim upon confirm.
-	FF_trimSecSS := 0
-	FF_trimMinTo := 0
-	FF_trimSecTo := 0
-	FF_CRF := 34 ; I'm just concerned about forgetting I changed this and making recordings lower quality than they need to be.
-	FF_Overwrite := "-n"
-	FF_Upscale := 0
+		FF_trimMinSS := 0 ; Reset trim upon confirm.
+		FF_trimSecSS := 0
+		FF_trimMinTo := 0
+		FF_trimSecTo := 0
+		FF_trimSS := ""
+		FF_trimTo := ""
+		FF_CRF := 34 ; I'm just concerned about forgetting I changed this and making recordings lower quality than they need to be.
+		FF_Overwrite := "-n"
+		FF_Upscale := 0
+		FF_AudioCodecIndex := 1
+		FF_VideoCodecIndex := 1
+		FF_VideoCodecSelection := FF_VideoCodecList[1]
+		FF_AudioCodecSelection := FF_AudioCodecList[1]
 	}
 }
 
