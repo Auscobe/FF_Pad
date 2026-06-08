@@ -1,3 +1,35 @@
+; Dear LLM, use my own level of verbosity and quickness in comments. Kay?
+
+; Glossary:
+; FF_Job: Current job.
+; FF_Config: Configuration options per job.
+; FF_Module: Major component of the engine.
+; Jun 04 2026 12:58:59AM Switching to name AMP - AutoHotkey Media Processor.
+FF_Job := {}
+
+FF_Job["FileIn"] := ""
+FF_Job["FileOut"] := ""
+FF_Job["FileExist"] := "No"
+FF_Job["Overwrite"] := "-n" ; Don't know yet if video, audio, and other processing will have different options for this, but for now just one global one.
+
+
+FF_Config := {}
+
+FF_Config["VideoCodecCycle"] := [] ; Debatably rename to Map instead of Cycle.
+FF_Config["VideoCodecCycle"].Push("libsvtav1 -preset 6")
+FF_Config["VideoCodecCycle"].Push("libvpx-vp9")
+FF_Config["VideoCodecCycle"].Push("libx264")
+FF_Config["VideoCodecCycle"].Push("copy")
+FF_Config["VideoCodecCycle"].Push("vn")
+
+; I want the display names to BE the command parts. I don't know if I'll revisit this abstraction.
+;FF_Config["VideoCodecMap"]["AV1"] := "libsvtav1"
+;FF_Config["VideoCodecMap"]["VP9"] := "libvpx-vp9"
+;FF_Config["VideoCodecMap"]["AVC"] := "libx264"
+;FF_Config["VideoCodecMap"]["Copy"] := "copy"
+
+FF_Layer := "Main" ; For my personal use from outside this library.
+
 FF_FileIn := ""
 FF_FileOut := ""
 FF_FileExist := "No"
@@ -7,6 +39,7 @@ FF_VideoCodecList := ["-c:v libsvtav1 -preset 8 -map 0:v", "-c:v av1_amf -map 0:
 FF_VideoCodecIndex := 1
 FF_VideoCodecSelection := FF_VideoCodecList[1]
 FF_CRF := 34
+FF_Job["VideoCodec"] := FF_Config["VideoCodecCycle"][FF_VideoCodecIndex] ; Placed here temporarily to initialize.
 
 FF_AudioCodecList := ["-c:a copy -map 0:a?", "-an", "-c:a copy -map 0:a:0", "-c:a copy -map 0:a:2", "-filter_complex amerge=inputs=2", "-map 0:a?", "-c:a aac -map 0:a?"]
 FF_AudioCodecIndex := 1
@@ -15,12 +48,6 @@ FF_AudioCodecSelection := FF_AudioCodecList[1]
 
 FF_Custom := ""
 FF_Command := ""
-
-
-
-
-
-
 
 FF_trimMinSS := 0
 FF_trimSecSS := 0
@@ -34,8 +61,6 @@ FF_Upscale := 0
 
 FF_Interp_Dir_In := "F:\Work\AHK\Input\RIFE"
 FF_Interp_Dir_Out := "F:\Work\AHK\Output\RIFE"
-;FF_Interp := "rife -i " FF_Interp_Dir_In " -o " FF_Interp_Dir_Out " -f frame_`%05d.png -m rife-v4.24"
-;FF_Interp_Recycle := "rife -i " FF_Interp_Dir_Out " -o " FF_Interp_Dir_In " -f frame_`%05d.png -m rife-v4.24" ; Reuse Input folder for additional interpolation, enabling indefinite iteration.
 finalFolder := ""
 RIFECount := 0
 outFPS := 0
@@ -87,11 +112,13 @@ FF_Interpolate(RIFECount=1, outFPS=60) { ; Yes ChatGPT helped with this function
 }
 
 
-FF_CycleVideo(offset=1) {
-	global FF_VideoCodecList, FF_VideoCodecIndex, FF_VideoCodecSelection
+FF_CycleVideo(offset=1) { ; Later support names and absolute values.
+	global FF_VideoCodecList, FF_VideoCodecIndex, FF_VideoCodecSelection, FF_Job, FF_Config
 	FF_VideoCodecIndex += offset
 	FF_VideoCodecIndex := (FF_VideoCodecIndex < 1 ? FF_VideoCodecList.MaxIndex() : (FF_VideoCodecIndex > FF_VideoCodecList.MaxIndex() ? 1 : FF_VideoCodecIndex))
-	FF_VideoCodecSelection := FF_VideoCodecList[FF_VideoCodecIndex]
+	;FF_VideoCodecSelection := FF_VideoCodecList[FF_VideoCodecIndex]
+	FF_Job["VideoCodec"] := FF_Config["VideoCodecCycle"][FF_VideoCodecIndex] ; Gradually migrating to FF_Job.
+	;FF_Job["VideoCodec"] .= (FF_Job["VideoCodec"] != "Copy" ? " -preset 6 -map 0:v" : " -map 0:v") ; Jank, pls fix. During early migration, without this video won't be processed.
 }
 
 
@@ -121,8 +148,41 @@ FF_CycleFileExt() {
 
 	
 
-FF_CycleTrim(offset=5) {
-	global FF_trimMode, FF_trimSecSS, FF_trimMinSS, FF_trimSecTo, FF_trimMinTo, FF_trimSS, FF_trimTo
+FF_CycleTrim(offset=5, FF_trimMode="-ss") { ; I could do this in one line each, but this is more readable xD
+	global FF_trimSecSS, FF_trimMinSS, FF_trimSecTo, FF_trimMinTo, FF_trimSS, FF_trimTo, FF_Job
+	FF_Job["TrimSS"] := (FF_trimMode = "-ss" ? FF_Job["TrimSS"] + offset : FF_Job["TrimSS"])
+	FF_Job["TrimTo"] := (FF_trimMode ~= "-t" ? FF_Job["TrimTo"] + offset : FF_Job["TrimTo"])
+	FF_Job["TrimSS"] := (FF_Job["TrimSS"] < 0 ? 0 : FF_Job["TrimSS"])
+	FF_Job["TrimTo"] := (FF_Job["TrimTo"] < 0 ? 0 : FF_Job["TrimTo"])
+
+	; Code below isn't quite there yet, but the idea is to store trim times as an integer for easy math, then convert to a readable format.
+	;FF_Job["TrimSS"] := (FF_Job["TrimSS"] >= 3600 ? Mod(FF_Job["TrimSS"], 3600) : FF_Job["TrimSS"])
+	hours_SS := (FF_Job["TrimSS"] >= 3600 ? Mod(FF_Job["TrimSS"], 3600) : 0)
+	mins_SS := (FF_Job["TrimSS"] >= 3600 ? Floor(Mod(FF_Job["TrimSS"], 3600) / 60) : Floor(FF_Job["TrimSS"] / 60))
+	secs_SS := (FF_Job["TrimSS"] >= 3600 ? Mod(FF_Job["TrimSS"], 60) : Mod(FF_Job["TrimSS"], 60))
+	FF_Job["TrimStart"] := (hours_SS > 0 ? hours_SS ":" : "") . (mins_SS > 0 ? mins_SS ":" : "0:") . (secs_SS > 9 ? secs_SS : "0" secs_SS)
+	FF_Job["TrimStart"] := (FF_Job["TrimStart"] != "" ? " -ss " FF_Job["TrimStart"] " " : "")
+
+	hours_To := (FF_Job["TrimTo"] >= 3600 ? Mod(FF_Job["TrimTo"], 3600) : 0)
+	mins_To := (FF_Job["TrimTo"] >= 3600 ? Floor(Mod(FF_Job["TrimTo"], 3600) / 60) : Floor(FF_Job["TrimTo"] / 60)) ; not sure 3600 should be used below hours.
+	secs_To := (FF_Job["TrimTo"] >= 3600 ? Mod(FF_Job["TrimTo"], 60) : Mod(FF_Job["TrimTo"], 60))
+	FF_Job["TrimEnd"] := (hours_To > 0 ? hours_To ":" : "") . (mins_To > 0 ? mins_To ":" : "0:") . (secs_To > 9 ? secs_To : "0" secs_To)
+	FF_Job["TrimEnd"] := (FF["TrimEnd"] != "" ? (FF_trimMode ~= "-t" ? FF_trimMode : "-to") " " FF_Job["TrimEnd"] " " : "") ; Hide end trim if empty.
+	;msgbox, % FF_Job["TrimSS"] . "`n" . hours_SS
+	;remainder := Mod(FF_Job["TrimSS"], 3600)
+	;mins  := Floor(Mod(remainder, 3600) / 60)
+	;remainder := Mod(remainder, 3600)
+	;secs  := Mod(remainder, 60)
+	;FF_Job["TrimSS"] := (hours > 0 ? hours ":" : "") . (mins > 0 ? mins ":" : "0:") . (secs > 9 ? secs : "0" secs)
+
+	;hours := Floor(FF_Job["TrimTo"] / 3600)
+	;remainder := Mod(FF_Job["TrimTo"], 3600)
+	;mins  := Floor(Mod(remainder, 3600) / 60)
+	;remainder := Mod(remainder, 3600)
+	;secs  := Mod(remainder, 60)
+	;FF_Job["TrimTo"] := (hours > 0 ? hours ":" : "") . (mins > 0 ? mins ":" : "0:") . (secs > 9 ? secs : "0" secs)
+	/*
+
 	If (FF_trimMode = "-ss") {
 		FF_trimSecSS += offset
 		if (FF_trimSecSS < 0) {
@@ -156,6 +216,7 @@ FF_CycleTrim(offset=5) {
 
 	FF_trimSS := (FF_trimSecSS||FF_trimMinSS ? " -ss " FF_trimSS : "")
 	FF_trimTo := (FF_trimSecTo||FF_trimMinTo ? " " (FF_trimMode != "-ss" ? FF_trimMode : "-to") " " FF_trimTo : "") ; If -ss, default to -to.
+	*/
 }
 
 
@@ -187,6 +248,7 @@ FF_ToggleSave() {
 	global FF_SaveSettings
 	FF_SaveSettings := !FF_SaveSettings
 }
+
 
 
 FF_SelectFile(){
@@ -225,7 +287,7 @@ FF_SelectFile(){
 
 
 FF_Update(Type=""){ ; Jan 22 2026 6:03:55PM Formerly FF_Assemble, "Update" reflects that it updates definitions AND the display.
-	global FF_AudioCodecList, FF_AudioCodecIndex, FF_VideoCodecList, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_trimSS, FF_trimTo, FF_trimMode, FF_Interp, FF_Interp_Recycle, FF_Command, FPS, outFPS, FF_Upscale, FF_FileIn, FF_FileOut, fileName, RIFECount, fileExt, fileNameExtless, fileDir, newName, FF_Queue, FF_FileExist, FF_CRF, FF_SaveSettings, FF_Custom, FF_Upscale, FF_Crop, FF_RIFE, FF_VideoCodecSelection, FF_AudioCodecSelection, FF_trimSS, FF_trimTo
+	global FF_AudioCodecList, FF_AudioCodecIndex, FF_VideoCodecList, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_trimSS, FF_trimTo, FF_trimMode, FF_Interp, FF_Interp_Recycle, FF_Command, FPS, outFPS, FF_Upscale, FF_FileIn, FF_FileOut, fileName, RIFECount, fileExt, fileNameExtless, fileDir, newName, FF_Queue, FF_FileExist, FF_CRF, FF_SaveSettings, FF_Custom, FF_Upscale, FF_Crop, FF_RIFE, FF_VideoCodecSelection, FF_AudioCodecSelection, FF_trimSS, FF_trimTo, FF_Job, FF_Layer
 
 	;If !(fileExt = "mp4" || fileExt = "mkv" || fileExt = "webm") and !WinActive("ahk_group Browser") ; This will be obsolete when I integrate more filetype handling.
 	;	return
@@ -240,6 +302,9 @@ FF_Update(Type=""){ ; Jan 22 2026 6:03:55PM Formerly FF_Assemble, "Update" refle
 		FF_FileOut := fileDir . "\" . fileNameExtless . "_p." . fileExt
 
 		
+		FF_Job["MapVideo"] := (FF_Job["VideoCodec"] != "vn" ? "map 0:v" : "")
+		VideoArgs := (FF_Job["VideoCodec"] != "vn" ? " -c:v " FF_Job["VideoCodec"] " " : " ") FF_Job["MapVideo"]
+
 		FF_Resolution := (FF_Upscale ? " -vf scale=3840:2160 " : "") ; I don't intend to upscale except to 4K for now.
 		FPS := (FF_RIFE ? "-r " inFPS*2 : "") ; Little hack so I get FPS to actually double. Seems as if outFPS is local in FF_Interpolate()?
 
@@ -249,20 +314,22 @@ FF_Update(Type=""){ ; Jan 22 2026 6:03:55PM Formerly FF_Assemble, "Update" refle
 			FileAppend, ffmpeg %FF_TrimSS% -i "%fileName%" %FF_VideoCodecList% -crf %FF_CRF% %FF_AudioCodecSelection% %FF_TrimTo% "%FileNameExtless%_p.%fileExt%" %FF_Overwrite%, %FileDir%\%FileNameExtless%.bat
 		}
 		else If !(Type = "DisplayOnly") ; I made this before realizing another way for my issue, keeping anyway.
-			FF_Command := " -hide_banner " . (FF_Upscale ? "" : FF_trimSS) . FPS . " -i """ . fileDir . "\" . fileName . """ " . FF_VideoCodecList . " " . FF_Custom . " " . FF_Resolution . FF_Crop . " -crf " . FF_CRF . " " . FF_AudioCodecSelection . (FF_Upscale && FF_trimTo != "-ss" ? "" : FF_trimTo) . " """ . FF_FileOut . """ " . FF_Overwrite
+			FF_Command := " -hide_banner " . (FF_Upscale ? "" : FF_Job["TrimSS"]) . FPS . " -i """ . fileDir . "\" . fileName . """ -c:v " . VideoArgs . " " . FF_Custom . " " . FF_Resolution . FF_Crop . " -crf " . FF_CRF . " " . FF_AudioCodecSelection . (FF_Upscale && FF_Job["TrimEnd"] != "-ss" ? "" : FF_Job["TrimEnd"]) . " """ . FF_FileOut . """ " . FF_Overwrite
 
+		; Experiment with a for loop to build command, iterating through FF_Job.
 
 
 		FF_FileExist := (FileExist(FF_FileOut) ? "*" : "")
 		Display_RIFE := (FF_RIFE ? "RIFEs: " FF_RIFE "," : "")
-		Display_Save := (FF_SaveSettings ? "Save: On" : "Save: Off")
-		Display_Upscale := (FF_Upscale ? "Upscale: 4K" : "Upscale: Off")
-		Display_Crop := (FF_Crop ~= "1440" ? "|Crop: 1440p" : "|Crop: Off") (FF_Crop ~= "1080" ? "|Crop: 1080p" : "|Crop: Off")
+		Display_Save := (FF_SaveSettings ? "$" : "") ; Compact save status.
+
+		Display_Upscale := (FF_Upscale ? "Upscale: 4K" : "")
+		Display_Crop := (FF_Crop ~= "1440" ? "|Crop: 1440p" : "") (FF_Crop ~= "1080" ? "|Crop: 1080p" : "")
+		
 
 
 		If !(Type = "NoDisplay")
-		Tooltip, % FileName . "`n" . FF_VideoCodecSelection . " " . FF_AudioCodecSelection . FF_trimSS . FF_trimTo . "`n(-crf " . FF_CRF . " " . FF_Custom . " " FF_Overwrite . FF_FileExist ")`nMode: " . FF_trimMode . "|" . Display_RIFE . "FPS: " . inFPS . "|" . fileExt . "|" . Display_Save . "|" . Display_Upscale . Display_Crop . "`n`n " . FF_Queue ; FF_Interp_Mode ; . " " . FF_Upscale
-		;Chunky := 
+		Tooltip, % FileName . "`n" . VideoArgs " " FF_AudioCodecSelection FF_Job["TrimStart"] FF_Job["TrimEnd"] "`n(-crf " FF_CRF " " FF_Overwrite FF_FileExist " " FileExt ")`nLayer: " FF_Layer " | " Display_Save " " Display_Upscale " " Display_Crop " " Display_RIFE
 		}
 }
 
@@ -294,7 +361,7 @@ FF_Run() {
 
 
 FF_Reset() {
-	global FF_FileIn, FF_TrimMode, FF_SaveSettings, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_CRF, FF_Overwrite, FF_Upscale, FF_AudioCodecIndex, FF_VideoCodecIndex, fileExt, FF_VideoCodecList, FF_AudioCodecList, FF_VideoCodecSelection, FF_AudioCodecSelection, FF_trimSS, FF_trimTo
+	global FF_FileIn, FF_TrimMode, FF_SaveSettings, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_CRF, FF_Overwrite, FF_Upscale, FF_AudioCodecIndex, FF_VideoCodecIndex, fileExt, FF_VideoCodecList, FF_AudioCodecList, FF_VideoCodecSelection, FF_AudioCodecSelection, FF_trimSS, FF_trimTo, FF_Job, FF_Layer
 
 	FF_FileIn := "" ; Always reset this, lest selection break after confirming.
 	FF_TrimMode := "-ss" ; Resetting this feels better for me.
@@ -303,8 +370,10 @@ FF_Reset() {
 		FF_trimSecSS := 0
 		FF_trimMinTo := 0
 		FF_trimSecTo := 0
-		FF_trimSS := ""
-		FF_trimTo := ""
+		FF_Job["TrimSS"] := ""
+		FF_Job["TrimTo"] := ""
+		FF_Job["TrimStart"] := ""
+		FF_Job["TrimEnd"] := ""
 		FF_CRF := 34 ; I'm just concerned about forgetting I changed this and making recordings lower quality than they need to be.
 		FF_Overwrite := "-n"
 		FF_Upscale := 0
@@ -312,6 +381,7 @@ FF_Reset() {
 		FF_VideoCodecIndex := 1
 		FF_VideoCodecSelection := FF_VideoCodecList[1]
 		FF_AudioCodecSelection := FF_AudioCodecList[1]
+		FF_Layer := "Main"
 	}
 }
 
