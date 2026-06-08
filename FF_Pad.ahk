@@ -148,75 +148,33 @@ FF_CycleFileExt() {
 
 	
 
-FF_CycleTrim(offset=5, FF_trimMode="-ss") { ; I could do this in one line each, but this is more readable xD
+FF_CycleTrim(offset=5, FF_trimMode="-ss") {
 	global FF_trimSecSS, FF_trimMinSS, FF_trimSecTo, FF_trimMinTo, FF_trimSS, FF_trimTo, FF_Job
-	FF_Job["TrimSS"] := (FF_trimMode = "-ss" ? FF_Job["TrimSS"] + offset : FF_Job["TrimSS"])
-	FF_Job["TrimTo"] := (FF_trimMode ~= "-t" ? FF_Job["TrimTo"] + offset : FF_Job["TrimTo"])
-	FF_Job["TrimSS"] := (FF_Job["TrimSS"] < 0 ? 0 : FF_Job["TrimSS"])
-	FF_Job["TrimTo"] := (FF_Job["TrimTo"] < 0 ? 0 : FF_Job["TrimTo"])
-
-	; Code below isn't quite there yet, but the idea is to store trim times as an integer for easy math, then convert to a readable format.
-	;FF_Job["TrimSS"] := (FF_Job["TrimSS"] >= 3600 ? Mod(FF_Job["TrimSS"], 3600) : FF_Job["TrimSS"])
-	hours_SS := (FF_Job["TrimSS"] >= 3600 ? Mod(FF_Job["TrimSS"], 3600) : 0)
-	mins_SS := (FF_Job["TrimSS"] >= 3600 ? Floor(Mod(FF_Job["TrimSS"], 3600) / 60) : Floor(FF_Job["TrimSS"] / 60))
-	secs_SS := (FF_Job["TrimSS"] >= 3600 ? Mod(FF_Job["TrimSS"], 60) : Mod(FF_Job["TrimSS"], 60))
-	FF_Job["TrimStart"] := (hours_SS > 0 ? hours_SS ":" : "") . (mins_SS > 0 ? mins_SS ":" : "0:") . (secs_SS > 9 ? secs_SS : "0" secs_SS)
-	FF_Job["TrimStart"] := (FF_Job["TrimStart"] != "" ? " -ss " FF_Job["TrimStart"] " " : "")
-
-	hours_To := (FF_Job["TrimTo"] >= 3600 ? Mod(FF_Job["TrimTo"], 3600) : 0)
-	mins_To := (FF_Job["TrimTo"] >= 3600 ? Floor(Mod(FF_Job["TrimTo"], 3600) / 60) : Floor(FF_Job["TrimTo"] / 60)) ; not sure 3600 should be used below hours.
-	secs_To := (FF_Job["TrimTo"] >= 3600 ? Mod(FF_Job["TrimTo"], 60) : Mod(FF_Job["TrimTo"], 60))
-	FF_Job["TrimEnd"] := (hours_To > 0 ? hours_To ":" : "") . (mins_To > 0 ? mins_To ":" : "0:") . (secs_To > 9 ? secs_To : "0" secs_To)
-	FF_Job["TrimEnd"] := (FF["TrimEnd"] != "" ? (FF_trimMode ~= "-t" ? FF_trimMode : "-to") " " FF_Job["TrimEnd"] " " : "") ; Hide end trim if empty.
-	;msgbox, % FF_Job["TrimSS"] . "`n" . hours_SS
-	;remainder := Mod(FF_Job["TrimSS"], 3600)
-	;mins  := Floor(Mod(remainder, 3600) / 60)
-	;remainder := Mod(remainder, 3600)
-	;secs  := Mod(remainder, 60)
-	;FF_Job["TrimSS"] := (hours > 0 ? hours ":" : "") . (mins > 0 ? mins ":" : "0:") . (secs > 9 ? secs : "0" secs)
-
-	;hours := Floor(FF_Job["TrimTo"] / 3600)
-	;remainder := Mod(FF_Job["TrimTo"], 3600)
-	;mins  := Floor(Mod(remainder, 3600) / 60)
-	;remainder := Mod(remainder, 3600)
-	;secs  := Mod(remainder, 60)
-	;FF_Job["TrimTo"] := (hours > 0 ? hours ":" : "") . (mins > 0 ? mins ":" : "0:") . (secs > 9 ? secs : "0" secs)
-	/*
-
 	If (FF_trimMode = "-ss") {
-		FF_trimSecSS += offset
-		if (FF_trimSecSS < 0) {
-			FF_trimSecSS := 55
-			if (FF_trimMinSS > 0)
-				FF_trimMinSS -= 1
-		}
-		else if (FF_trimSecSS > 59) {
-			FF_trimSecSS := 0
-			FF_trimMinSS ++ 1
-		}
-	} else If (FF_trimMode ~= "-t") { ; Account for both -t and -to
-		FF_trimSecTo += offset
-		if (FF_trimSecTo < 0) {
-			FF_trimSecTo := 55
-			if (FF_trimMinTo > 0)
-				FF_trimMinTo -= 1
-		}
-		else if (FF_trimSecTo > 59) {
-			FF_trimSecTo := 0
-			FF_trimMinTo += 1
-		}
+		FF_Job["TrimSS"] := (FF_trimMode = "-ss" ? FF_Job["TrimSS"] + offset : FF_Job["TrimSS"])
+		FF_Job["TrimSS"] := (FF_Job["TrimSS"] < 0 ? 0 : FF_Job["TrimSS"])
+
+		total_SS := FF_Job["TrimSS"]
+		hours_SS := Floor(total_SS / 3600)
+		mins_SS  := Floor(Mod(total_SS, 3600) / 60)
+		secs_SS  := Mod(total_SS, 60)
+
+		FF_Job["TrimStart"] := (hours_SS > 0 ? hours_SS ":" : "") . (mins_SS > 0 ? mins_SS ":" : "0:") . (secs_SS > 9 ? secs_SS : "0" secs_SS)
+		FF_Job["TrimStart"] := (FF_Job["TrimStart"] != "" ? " -ss " FF_Job["TrimStart"] " " : "")
 	}
 
-	formatTime := (FF_trimMinSS > 0 & FF_trimSecSS != "") ? FF_trimMinSS : ; This needs to be blank if empty.
-	formatTime .= (FF_trimSecSS > 9) ? ":" FF_trimSecSS : ":0" FF_trimSecSS
-	FF_trimSS := formatTime
-	formatTime := (FF_trimMinTo > 0 & FF_trimSecTo != "") ? FF_trimMinTo : ; This needs to be blank if empty.
-	formatTime .= (FF_trimSecTo > 9) ? ":" FF_trimSecTo : ":0" FF_trimSecTo
-	FF_trimTo := formatTime
+	If (FF_trimMode ~= "-t") {
+		FF_Job["TrimTo"] := (FF_trimMode ~= "-t" ? FF_Job["TrimTo"] + offset : FF_Job["TrimTo"])
+		FF_Job["TrimTo"] := (FF_Job["TrimTo"] < 0 ? 0 : FF_Job["TrimTo"])
 
-	FF_trimSS := (FF_trimSecSS||FF_trimMinSS ? " -ss " FF_trimSS : "")
-	FF_trimTo := (FF_trimSecTo||FF_trimMinTo ? " " (FF_trimMode != "-ss" ? FF_trimMode : "-to") " " FF_trimTo : "") ; If -ss, default to -to.
-	*/
+		total_To := FF_Job["TrimTo"]
+		hours_To := Floor(total_To / 3600)
+		mins_To := Floor(Mod(total_To, 3600) / 60)
+		secs_To := Mod(total_To, 60)
+
+		FF_Job["TrimEnd"] := (hours_To > 0 ? hours_To ":" : "") . (mins_To > 0 ? mins_To ":" : "0:") . (secs_To > 9 ? secs_To : "0" secs_To)
+		FF_Job["TrimEnd"] := (FF_Job["TrimEnd"] != "" ? (FF_trimMode ~= "-t" ? FF_trimMode : "-to") " " FF_Job["TrimEnd"] " " : "") ; Hide end trim if empty.
+	}
 }
 
 
@@ -329,7 +287,7 @@ FF_Update(Type=""){ ; Jan 22 2026 6:03:55PM Formerly FF_Assemble, "Update" refle
 
 
 		If !(Type = "NoDisplay")
-		Tooltip, % FileName . "`n" . VideoArgs " " FF_AudioCodecSelection FF_Job["TrimStart"] FF_Job["TrimEnd"] "`n(-crf " FF_CRF " " FF_Overwrite FF_FileExist " " FileExt ")`nLayer: " FF_Layer " | " Display_Save " " Display_Upscale " " Display_Crop " " Display_RIFE
+		Tooltip, % FileName . "`n" . VideoArgs " " FF_AudioCodecSelection FF_Job["TrimStart"] FF_Job["TrimEnd"] "`n(-crf " FF_CRF " " FF_Overwrite FF_FileExist " " FileExt ")`nLayer: " FF_Layer " | " FF_trimMode " | " Display_Save " " Display_Upscale " " Display_Crop " " Display_RIFE
 		}
 }
 
