@@ -1,32 +1,60 @@
-; Dear LLM, use my own level of verbosity and quickness in comments. Kay?
+; AMP is a lightweight media processing engine built in AutoHotkey for experienced users to assemble FFmpeg commands in seconds.
+; It's very lightweight, easily expandable, and works directly with FFmpeg arguments. Know what you want. Build it fast.
 
 ; Glossary:
-; FF_Job: Current job.
-; FF_Config: Configuration options per job.
+; FF_Job: Current job containing choices for input, output, and processing. (What do I want to do?)
+; FF_Config: Available choices for FF_Job. (How does AMP know how to do it?)
 ; FF_Module: Major component of the engine.
 ; Jun 04 2026 12:58:59AM Switching to name AMP - AutoHotkey Media Processor.
+
+; This engine is meant not to abstract FFmpeg i.e to a GUI, but make it faster to drive.
+
+FF_Config := {}
+
+FF_Config["VideoCodecList"] := []
+FF_Config["VideoCodecList"].Push("-c:v libsvtav1 -map 0:v")
+FF_Config["VideoCodecList"].Push("-c:v libvpx-vp9 -map 0:v")
+FF_Config["VideoCodecList"].Push("-c:v libx264 -map 0:v")
+FF_Config["VideoCodecList"].Push("-c:v copy -map 0:v")
+FF_Config["VideoCodecList"].Push("-vn")
+
+FF_Config["VideoCodecIndex"] := 1 ; May need to move this to FF_Job in the future should I want consistency of selection per job.
+
+FF_Config["AudioCodecList"] := []
+FF_Config["AudioCodecList"].Push("-c:a copy -map 0:a?")
+FF_Config["AudioCodecList"].Push("-an")
+FF_Config["AudioCodecList"].Push("-c:a copy -map 0:a:0")
+FF_Config["AudioCodecList"].Push("-c:a copy -map 0:a:2")
+FF_Config["AudioCodecList"].Push("-filter_complex amerge=inputs=2")
+FF_Config["AudioCodecList"].Push("-map 0:a?")
+FF_Config["AudioCodecList"].Push("-c:a aac -map 0:a?")
+
+FF_Config["AudioCodecIndex"] := 1
+
+FF_Module := {}
+FF_Module["Interpolate"] := ""
+FF_Queue := {} ; This should be iterated through variations of FF_Job as configured to form a queue of jobs; one export, multiple outputs.
+
+
+
 FF_Job := {}
 
 FF_Job["FileIn"] := ""
 FF_Job["FileOut"] := ""
 FF_Job["FileExist"] := "No"
 FF_Job["Overwrite"] := "-n" ; Don't know yet if video, audio, and other processing will have different options for this, but for now just one global one.
+FF_Job["TrimSS"] := 0
+FF_Job["TrimTo"] := 0
+FF_Job["TrimStart"] := ""
+FF_Job["TrimEnd"] := ""
+FF_Job["VideoCodec"] := FF_Config["VideoCodecList"][FF_Config["VideoCodecIndex"]]
+FF_Job["VideoCodecPreset"] := 6
+FF_Job["VideoCRF"] := 40
+FF_Job["AudioCodec"] := FF_Config["AudioCodecList"][FF_Config["AudioCodecIndex"]]
+FF_Job["WorkingDir"] := ""
 
 
-FF_Config := {}
 
-FF_Config["VideoCodecCycle"] := [] ; Debatably rename to Map instead of Cycle.
-FF_Config["VideoCodecCycle"].Push("libsvtav1 -preset 6")
-FF_Config["VideoCodecCycle"].Push("libvpx-vp9")
-FF_Config["VideoCodecCycle"].Push("libx264")
-FF_Config["VideoCodecCycle"].Push("copy")
-FF_Config["VideoCodecCycle"].Push("vn")
-
-; I want the display names to BE the command parts. I don't know if I'll revisit this abstraction.
-;FF_Config["VideoCodecMap"]["AV1"] := "libsvtav1"
-;FF_Config["VideoCodecMap"]["VP9"] := "libvpx-vp9"
-;FF_Config["VideoCodecMap"]["AVC"] := "libx264"
-;FF_Config["VideoCodecMap"]["Copy"] := "copy"
 
 FF_Layer := "Main" ; For my personal use from outside this library.
 
@@ -34,17 +62,6 @@ FF_FileIn := ""
 FF_FileOut := ""
 FF_FileExist := "No"
 FF_Overwrite := "-n"
-
-FF_VideoCodecList := ["-c:v libsvtav1 -preset 8 -map 0:v", "-c:v av1_amf -map 0:v", "-c:v libvpx-vp9 -map 0:v", "-c:v copy -map 0:v"]
-FF_VideoCodecIndex := 1
-FF_VideoCodecSelection := FF_VideoCodecList[1]
-FF_CRF := 34
-FF_Job["VideoCodec"] := FF_Config["VideoCodecCycle"][FF_VideoCodecIndex] ; Placed here temporarily to initialize.
-
-FF_AudioCodecList := ["-c:a copy -map 0:a?", "-an", "-c:a copy -map 0:a:0", "-c:a copy -map 0:a:2", "-filter_complex amerge=inputs=2", "-map 0:a?", "-c:a aac -map 0:a?"]
-FF_AudioCodecIndex := 1
-FF_AudioCodecSelection := FF_AudioCodecList[1]
-
 
 FF_Custom := ""
 FF_Command := ""
@@ -79,61 +96,66 @@ FF_Active() { ; Jan 22 2026 5:23:40PM I recognize the possibility of wanting to 
 	return WinActive("ahk_group FileManager") and (FF_FileIn != "")
 }
 
-
+/*
 FF_Upscale(file, scale="2") {
 	Tooltip ; Premature reset lest it linger during whole upscale.
-	global fileDir, FF_Upscaled, FF_FileIn, FF_trimSS, FF_trimTo
+	global FF_Upscaled, FF_FileIn, FF_trimSS, FF_trimTo
 	FileCreateDir, %fileDir%\in
 	FileCreateDir, %fileDir%\out
-	RunWait cmd /c ffmpeg %FF_trimSS% %FF_trimTo% -i "%file%" -qscale:v 1 "%fileDir%\in\frame_`%05d.png" && realesrgan -i "%fileDir%\in" -o "%fileDir%\out" -n 2x-Compact-RealESRGAN -s %scale% -j 3:3:3 ; Consider having FFmpeg -vf "fps=%inFPS%" or so for extraction.
+	upscale := "ffmpeg %FF_trimSS% %FF_trimTo% -i ""%file%"" -qscale:v 1 ""%fileDir%\in\frame_`%05d.png"" && realesrgan -i ""%fileDir%\in"" -o ""%fileDir%\out"" -n 2x-Compact-RealESRGAN -s %scale% -j 3:3:3" ; Consider having FFmpeg -vf "fps=%inFPS%" or so for extraction.
 	return """" fileDir "\out\frame_`%05d.png"""
 }
 
 
 FF_Interpolate(RIFECount=1, outFPS=60) { ; Yes ChatGPT helped with this function, how could you tell?
 	global FF_Interp_Enabled, FF_Interp_Dir_In, FF_Interp_Dir_Out, FF_FileIn, inFPS ; Not working too well. Please just use flowframes.
-	; No need to establish base FPS, file is already selected.
-	If !(outFPS = inFPS*2) ; If outFPS not specified, x2 inFPS.
+	If !(outFPS = inFPS*2)
 		outFPS := inFPS*2
 	runWait cmd /c ffmpeg -i "%FF_FileIn%" -qscale:v 1 -qmin 1 -qmax 1 -vsync=vfr %FF_Interp_Dir_In%/frame_`%05d.png ;,,min
 	
-	Loop, %RIFECount% { ; Interpolation loop
+	Loop, %RIFECount% {
 	i := A_Index
-	; Create two variables in the scope of this function for simplicity.
+	; At some point this should add to the front of the final command, not run any itself.
 	rifeIn := (Mod(i,2) = 1) ? FF_Interp_Dir_In : FF_Interp_Dir_Out ; Alternate between regular and recycle directory
 	rifeOut := (Mod(i,2) = 1) ? FF_Interp_Dir_Out : FF_Interp_Dir_In ; Record which folder was last used
 		
 	RunWait, cmd /c rife -i "%rifeIn%" -o "%rifeOut%" -m rife-v4.26 ;,,min
 	}
-	; Post-Interpolation logic
 	finalFolder := rifeOut
 	;runWait ffmpeg -r %outFPS% -i "%finalFolder%/frame_`%05d.png" -c:v libsvtav1 -preset 8 -r %outFPS% -pix_fmt yuv420p %fileDir%\%fileNameExtless%_.mp4 ;This function should not recompile.
 	return finalFolder
 }
-
+*/
 
 FF_CycleVideo(offset=1) { ; Later support names and absolute values.
-	global FF_VideoCodecList, FF_VideoCodecIndex, FF_VideoCodecSelection, FF_Job, FF_Config
-	FF_VideoCodecIndex += offset
-	FF_VideoCodecIndex := (FF_VideoCodecIndex < 1 ? FF_VideoCodecList.MaxIndex() : (FF_VideoCodecIndex > FF_VideoCodecList.MaxIndex() ? 1 : FF_VideoCodecIndex))
-	;FF_VideoCodecSelection := FF_VideoCodecList[FF_VideoCodecIndex]
-	FF_Job["VideoCodec"] := FF_Config["VideoCodecCycle"][FF_VideoCodecIndex] ; Gradually migrating to FF_Job.
+	global FF_Job, FF_Config, VideoArgs
+	FF_Config["VideoCodecIndex"] += offset
+	FF_Config["VideoCodecIndex"] := (FF_Config["VideoCodecIndex"] < 1 ? FF_Config["VideoCodecList"].MaxIndex() : (FF_Config["VideoCodecIndex"] > FF_Config["VideoCodecList"].MaxIndex() ? 1 : FF_Config["VideoCodecIndex"]))
+	FF_Job["VideoCodec"] := FF_Config["VideoCodecList"][FF_Config["VideoCodecIndex"]] ; Gradually migrating to FF_Job.
 	;FF_Job["VideoCodec"] .= (FF_Job["VideoCodec"] != "Copy" ? " -preset 6 -map 0:v" : " -map 0:v") ; Jank, pls fix. During early migration, without this video won't be processed.
+
 }
 
 
 FF_CycleAudio(offset=1) {
-	global FF_AudioCodecList, FF_AudioCodecIndex, FF_AudioCodecSelection
-	FF_AudioCodecIndex += offset
-	FF_AudioCodecIndex := (FF_AudioCodecIndex < 1 ? FF_AudioCodecList.MaxIndex() : (FF_AudioCodecIndex > FF_AudioCodecList.MaxIndex() ? 1 : FF_AudioCodecIndex))
-	FF_AudioCodecSelection := FF_AudioCodecList[FF_AudioCodecIndex]
+	global FF_Job, FF_Config
+	FF_Config["AudioCodecIndex"] += offset
+	FF_Config["AudioCodecIndex"] := (FF_Config["AudioCodecIndex"] < 1 ? FF_Config["AudioCodecList"].MaxIndex() : (FF_Config["AudioCodecIndex"] > FF_Config["AudioCodecList"].MaxIndex() ? 1 : FF_Config["AudioCodecIndex"]))
+	FF_Job["AudioCodec"] := FF_Config["AudioCodecList"][FF_Config["AudioCodecIndex"]]
+	;msgbox, % FF_Job["AudioCodec"] " | " FF_Config["AudioCodecList"][FF_Config["AudioCodecIndex"]]
 }
 
 
 FF_CycleCRF(offset=1) {
-	global FF_CRF
-	FF_CRF += offset
-	FF_CRF := (FF_CRF < 0 ? 63 : (FF_CRF > 63 ? 0 : FF_CRF))
+	global FF_Job
+	FF_Job["VideoCRF"] += offset
+	FF_Job["VideoCRF"] := (FF_Job["VideoCRF"] < 0 ? 63 : (FF_Job["VideoCRF"] > 63 ? 0 : FF_Job["VideoCRF"]))
+}
+
+FF_CycleVideoCodecPreset(offset=1) {
+	global FF_Job
+	FF_Job["VideoCodecPreset"] += offset ; Later on let this identify max preset by codec and use a max preset variable.
+	FF_Job["VideoCodecPreset"] := (FF_Job["VideoCodecPreset"] < 0 ? 13 : (FF_Job["VideoCodecPreset"] > 13 ? 0 : FF_Job["VideoCodecPreset"]))
 }
 
 FF_CycleOverwrite() {
@@ -151,7 +173,7 @@ FF_CycleFileExt() {
 FF_CycleTrim(offset=5, FF_trimMode="-ss") {
 	global FF_trimSecSS, FF_trimMinSS, FF_trimSecTo, FF_trimMinTo, FF_trimSS, FF_trimTo, FF_Job
 	If (FF_trimMode = "-ss") {
-		FF_Job["TrimSS"] := (FF_trimMode = "-ss" ? FF_Job["TrimSS"] + offset : FF_Job["TrimSS"])
+		FF_Job["TrimSS"] := FF_Job["TrimSS"] + offset
 		FF_Job["TrimSS"] := (FF_Job["TrimSS"] < 0 ? 0 : FF_Job["TrimSS"])
 
 		total_SS := FF_Job["TrimSS"]
@@ -159,12 +181,12 @@ FF_CycleTrim(offset=5, FF_trimMode="-ss") {
 		mins_SS  := Floor(Mod(total_SS, 3600) / 60)
 		secs_SS  := Mod(total_SS, 60)
 
-		FF_Job["TrimStart"] := (hours_SS > 0 ? hours_SS ":" : "") . (mins_SS > 0 ? mins_SS ":" : "0:") . (secs_SS > 9 ? secs_SS : "0" secs_SS)
-		FF_Job["TrimStart"] := (FF_Job["TrimStart"] != "" ? " -ss " FF_Job["TrimStart"] " " : "")
+		FF_Job["TrimStart"] := "-ss " (hours_SS > 0 ? hours_SS ":" : "") . (mins_SS > 0 ? mins_SS ":" : "0:") . (secs_SS > 9 ? secs_SS " " : "0" secs_SS " ")
+		FF_Job["TrimStart"] := (hours_SS|mins_SS|secs_SS ? FF_Job["TrimStart"] " " : " ") ; Kinda bandaid but makes trim disappear if blank.
 	}
 
 	If (FF_trimMode ~= "-t") {
-		FF_Job["TrimTo"] := (FF_trimMode ~= "-t" ? FF_Job["TrimTo"] + offset : FF_Job["TrimTo"])
+		FF_Job["TrimTo"] := FF_Job["TrimTo"] + offset
 		FF_Job["TrimTo"] := (FF_Job["TrimTo"] < 0 ? 0 : FF_Job["TrimTo"])
 
 		total_To := FF_Job["TrimTo"]
@@ -173,7 +195,7 @@ FF_CycleTrim(offset=5, FF_trimMode="-ss") {
 		secs_To := Mod(total_To, 60)
 
 		FF_Job["TrimEnd"] := (hours_To > 0 ? hours_To ":" : "") . (mins_To > 0 ? mins_To ":" : "0:") . (secs_To > 9 ? secs_To : "0" secs_To)
-		FF_Job["TrimEnd"] := (FF_Job["TrimEnd"] != "" ? (FF_trimMode ~= "-t" ? FF_trimMode : "-to") " " FF_Job["TrimEnd"] " " : "") ; Hide end trim if empty.
+		FF_Job["TrimEnd"] := (FF_Job["TrimEnd"] != "" ? (FF_trimMode ~= " -t" ? FF_trimMode : " -to") " " FF_Job["TrimEnd"] " " : "") ; Hide end trim if empty.
 	}
 }
 
@@ -210,22 +232,22 @@ FF_ToggleSave() {
 
 
 FF_SelectFile(){
-	global FF_FileIn, FF_FileOut, fileName, fileDir, fileExt, fileNameExtless, outFPS, inFPS, SelectedFile
+	global FF_FileIn, FF_FileOut, fileName, fileExt, fileNameExtless, outFPS, inFPS, SelectedFile, VideoArgs, FF_Job
 
 	If WinActive("ahk_exe Dopus.exe") or WinActive("ahk_exe Everything.exe") {
 		clipboard := "" ; Very important to first empty clipboard to avoid faulty checks later from existing contents!
 		sleep, 30
 		Send ^+c
 		ClipWait, 0.3
-		FF_FileIn := (WinActive("ahk_class EVERYTHING") ? Trim(FF_FileIn, """") : clipboard) ; Everything.exe adds quotes anyway.
+		filePath := (WinActive("ahk_class EVERYTHING") ? Trim(FF_FileIn, """") : clipboard) ; Everything.exe adds quotes anyway.
 	}
 
-	If (FF_FileIn = SelectedFile)
+	If (filePath = SelectedFile)
 		return ; If file already selected, end here.
 
-	SelectedFile := FF_FileIn
-	If !(FF_FileIn ~= "youtube.com") {
-		SplitPath, FF_FileIn, fileName, fileDir, fileExt, fileNameExtless ; Prepare directory and name for later
+	SelectedFile := filePath
+	If !(filePath ~= "youtube.com") {
+		SplitPath, filePath, FF_Job["FileIn"], FF_Job["WorkingDir"], fileExt, fileNameExtless ; Prepare directory and name for later
 
 		If (fileExt in jpg,jpeg,png) {
 			;run realesrgan -i "%FF_FileIn%" -o "%fileDir%\%fileNameExtless%_p.%fileExt%" -n 2x-Compact-RealESRGAN -s 2
@@ -234,7 +256,7 @@ FF_SelectFile(){
 			;return
 		}
 
-		RunWait cmd /c ffprobe -v 0 -of csv=p=0 -select_streams v:0 -show_entries stream=r_frame_rate "%FF_FileIn%" | clip,, hide
+		RunWait cmd /c ffprobe -v 0 -of csv=p=0 -select_streams v:0 -show_entries stream=r_frame_rate "%filePath%" | clip,, hide
 		ClipWait, 0.3
 		
 		p := StrSplit(clipboard, "/")
@@ -244,35 +266,23 @@ FF_SelectFile(){
 }
 
 
-FF_Update(Type=""){ ; Jan 22 2026 6:03:55PM Formerly FF_Assemble, "Update" reflects that it updates definitions AND the display.
-	global FF_AudioCodecList, FF_AudioCodecIndex, FF_VideoCodecList, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_trimSS, FF_trimTo, FF_trimMode, FF_Interp, FF_Interp_Recycle, FF_Command, FPS, outFPS, FF_Upscale, FF_FileIn, FF_FileOut, fileName, RIFECount, fileExt, fileNameExtless, fileDir, newName, FF_Queue, FF_FileExist, FF_CRF, FF_SaveSettings, FF_Custom, FF_Upscale, FF_Crop, FF_RIFE, FF_VideoCodecSelection, FF_AudioCodecSelection, FF_trimSS, FF_trimTo, FF_Job, FF_Layer
+FF_Display(Type=""){ ; Jan 22 2026 6:03:55PM Formerly FF_Assemble, "Update" reflects that it updates definitions AND the display.
+	global FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_trimSS, FF_trimTo, FF_trimMode, FF_Interp, FF_Interp_Recycle, FF_Command, FPS, outFPS, FF_Upscale, FF_FileOut, RIFECount, fileExt, fileNameExtless, newName, FF_Queue, FF_FileExist, FF_SaveSettings, FF_Custom, FF_Upscale, FF_Crop, FF_RIFE, FF_trimSS, FF_trimTo, FF_Job, FF_Layer, FF_Config
 
-	;If !(fileExt = "mp4" || fileExt = "mkv" || fileExt = "webm") and !WinActive("ahk_group Browser") ; This will be obsolete when I integrate more filetype handling.
-	;	return
+	If !(FF_Job["FileIn"] ~= "youtube.com") { ; Refactor this function later so only necessary code is run per situation (file or URL).
+		FF_Job["FileOut"] := fileNameExtless . "_p." . fileExt
 
-
-	;FF_Command := FF_VideoCodecList . " " . FF_Audio . " " . (FF_trimSecSS != 0||FF_trimMinSS != 0 ? " -ss " FF_trim : "")
-
-
-	If !(FF_FileIn ~= "youtube.com") { ; Refactor this function later so only necessary code is run per situation (file or URL).
-		FF_Interp_Mode := "RIFE " . FPS . "x" . outFPS . "FPS"
-		; FF_Interp
-		FF_FileOut := fileDir . "\" . fileNameExtless . "_p." . fileExt
-
-		
-		FF_Job["MapVideo"] := (FF_Job["VideoCodec"] != "vn" ? "map 0:v" : "")
-		VideoArgs := (FF_Job["VideoCodec"] != "vn" ? " -c:v " FF_Job["VideoCodec"] " " : " ") FF_Job["MapVideo"]
-
-		FF_Resolution := (FF_Upscale ? " -vf scale=3840:2160 " : "") ; I don't intend to upscale except to 4K for now.
-		FPS := (FF_RIFE ? "-r " inFPS*2 : "") ; Little hack so I get FPS to actually double. Seems as if outFPS is local in FF_Interpolate()?
-
-		FF_Crop := ""
+		;FF_Resolution := (FF_Upscale ? " -vf scale=3840:2160 " : "") ; I don't intend to upscale except to 4K for now.
+;		FPS := (FF_RIFE ? "-r " inFPS*2 : "") ; Little hack so I get FPS to actually double. Seems as if outFPS is local in FF_Interpolate()?
+	;FF_Job["MapVideo"] := (FF_Job["VideoCodec"] != "vn" ? "-map 0:v" : "")
+	;VideoArgs := (FF_Job["VideoCodec"] != "vn" ? " -c:v " FF_Job["VideoCodec"] " " : " ") FF_Job["MapVideo"]
+;		FF_Crop := ""
 		If (Type = "bat") { ; Put these two, plus clipboard, into new function FF_Export() (maybe)
 			FileDelete, %FileDir%\%FileNameExtless%.bat
-			FileAppend, ffmpeg %FF_TrimSS% -i "%fileName%" %FF_VideoCodecList% -crf %FF_CRF% %FF_AudioCodecSelection% %FF_TrimTo% "%FileNameExtless%_p.%fileExt%" %FF_Overwrite%, %FileDir%\%FileNameExtless%.bat
+			FileAppend, % "ffmpeg " FF_TrimSS "-i " FF_Job["FileIn"] " " FF_Job["VideoCodec"] " -crf " FF_Job["VideoCRF"] " " FF_Config["AudioCodec"] " " FF_TrimTo """"FileNameExtless "_p." fileExt " FF_Overwrite, %FileDir%\%FileNameExtless%.bat
 		}
-		else If !(Type = "DisplayOnly") ; I made this before realizing another way for my issue, keeping anyway.
-			FF_Command := " -hide_banner " . (FF_Upscale ? "" : FF_Job["TrimSS"]) . FPS . " -i """ . fileDir . "\" . fileName . """ -c:v " . VideoArgs . " " . FF_Custom . " " . FF_Resolution . FF_Crop . " -crf " . FF_CRF . " " . FF_AudioCodecSelection . (FF_Upscale && FF_Job["TrimEnd"] != "-ss" ? "" : FF_Job["TrimEnd"]) . " """ . FF_FileOut . """ " . FF_Overwrite
+		else If !(Type = "DisplayOnly") ; Move this into Export function. Don't remake the command constantly.
+			FF_Command := "-hide_banner " FF_Job["TrimStart"] "-i """ fileDir "\" FF_Job["FileIn"] """ " FF_Job["VideoCodec"] " -preset " FF_Job["VideoCodecPreset"] FF_Custom " " FF_Resolution FF_Crop " -crf " FF_Job["VideoCRF"] " " FF_Job["AudioCodec"] (FF_Upscale && FF_Job["TrimEnd"] != "-ss" ? "" : FF_Job["TrimEnd"]) " """ FF_FileOut """ " FF_Overwrite
 
 		; Experiment with a for loop to build command, iterating through FF_Job.
 
@@ -281,45 +291,32 @@ FF_Update(Type=""){ ; Jan 22 2026 6:03:55PM Formerly FF_Assemble, "Update" refle
 		Display_RIFE := (FF_RIFE ? "RIFEs: " FF_RIFE "," : "")
 		Display_Save := (FF_SaveSettings ? "$" : "") ; Compact save status.
 
-		Display_Upscale := (FF_Upscale ? "Upscale: 4K" : "")
-		Display_Crop := (FF_Crop ~= "1440" ? "|Crop: 1440p" : "") (FF_Crop ~= "1080" ? "|Crop: 1080p" : "")
-		
 
 
 		If !(Type = "NoDisplay")
-		Tooltip, % FileName . "`n" . VideoArgs " " FF_AudioCodecSelection FF_Job["TrimStart"] FF_Job["TrimEnd"] "`n(-crf " FF_CRF " " FF_Overwrite FF_FileExist " " FileExt ")`nLayer: " FF_Layer " | " FF_trimMode " | " Display_Save " " Display_Upscale " " Display_Crop " " Display_RIFE
+		Tooltip, % FF_Job["FileIn"] . "`n" . FF_Job["VideoCodec"] " -preset " FF_Job["VideoCodecPreset"] " " FF_Job["AudioCodec"] " " FF_Job["TrimStart"] FF_Job["TrimEnd"] "`n(-crf " FF_Job["VideoCRF"] " " FF_Overwrite FF_FileExist " " FileExt ")`nLayer: " FF_Layer " | " FF_trimMode " | " Display_Save " " Display_Upscale " " Display_Crop " " Display_RIFE
 		}
 }
 
 
-FF_Run() {
-	global FF_Command, Chunky, c, FF_SaveSettings, FF_FileIn, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_TrimMode, FF_CRF, FF_Upscale, FF_RIFE, fileDir, FF_Interp_Dir_In, FF_Interp_Dir_Out
+FF_Export() {
+	global FF_Command, Chunky, c, FF_SaveSettings, FF_FileIn, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_TrimMode, FF_Upscale, FF_RIFE, FF_Job
 	If (FF_Upscale)
 		FF_FileIn := FF_Upscale(FF_FileIn, 2) ; This automatically extracts and interpolates frames, and returns output folder.
 	If (FF_RIFE)
 		FF_FileIn := FF_Interpolate() ; Not working too well. Please just use flowframes.
 
-	FF_Update("NoDisplay")
+	FF_Display("NoDisplay")
 	Tooltip
 	
-	If (FF_Upscale||FF_RIFE)
-		RunWait cmd /c ffmpeg %FF_Command% ; In v2, add upscale/interpolation commands in front of this to do it in one CMD.
-	else
-		Run cmd /c ffmpeg %FF_Command%
-	;clipboard := FF_Command
-	If (FF_Upscale) {
-		FileRemoveDir, %fileDir%\in, 1
-		FileRemoveDir, %fileDir%\out, 1
-	}
-	If (FF_RIFE) {
-		FileRemoveDir, %FF_Interp_Dir_In%\*.png
-		FileRemoveDir, %FF_Interp_Dir_Out%\*.png
-	}
+	
+	; Build command, have CMD do cd %workingdir%, get started on a more flexible setup this way to send to a node etc.
+		Run cmd /c cd %FF_Job["WorkingDir"]% && ffmpeg %FF_Command%
 }
 
 
 FF_Reset() {
-	global FF_FileIn, FF_TrimMode, FF_SaveSettings, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_CRF, FF_Overwrite, FF_Upscale, FF_AudioCodecIndex, FF_VideoCodecIndex, fileExt, FF_VideoCodecList, FF_AudioCodecList, FF_VideoCodecSelection, FF_AudioCodecSelection, FF_trimSS, FF_trimTo, FF_Job, FF_Layer
+	global FF_FileIn, FF_TrimMode, FF_SaveSettings, FF_trimMinSS, FF_trimSecSS, FF_trimMinTo, FF_trimSecTo, FF_Overwrite, FF_Upscale, fileExt, FF_Config, FF_trimSS, FF_trimTo, FF_Job, FF_Layer
 
 	FF_FileIn := "" ; Always reset this, lest selection break after confirming.
 	FF_TrimMode := "-ss" ; Resetting this feels better for me.
@@ -332,21 +329,22 @@ FF_Reset() {
 		FF_Job["TrimTo"] := ""
 		FF_Job["TrimStart"] := ""
 		FF_Job["TrimEnd"] := ""
-		FF_CRF := 34 ; I'm just concerned about forgetting I changed this and making recordings lower quality than they need to be.
+		FF_Job["CRF"] := 40 ; I'm just concerned about forgetting I changed this and making recordings lower quality than they need to be.
 		FF_Overwrite := "-n"
 		FF_Upscale := 0
-		FF_AudioCodecIndex := 1
-		FF_VideoCodecIndex := 1
-		FF_VideoCodecSelection := FF_VideoCodecList[1]
-		FF_AudioCodecSelection := FF_AudioCodecList[1]
+		FF_Job["VideoCodec"] := FF_Config["VideoCodecList"][1]
+		FF_Job["AudioCodec"] := FF_Config["AudioCodecList"][1]
+		FF_Config["VideoCodecIndex"] := 1
+		FF_Config["AudioCodecIndex"] := 1
 		FF_Layer := "Main"
 	}
 }
 
 /*
 ; Roadmap for v2 (some in library itself, some in hotkeys):
-; Split code into modes: Input Mode (yt-dlp, image, video, audio), Proc Mode (video, audio, else), Output Mode (direct, bat, clipboard, etc)
-; Merge all export options (Direct, .Bat, Clipboard, Custom Args/Command) into new function Export(), press to cycle and hold to execute.
+; Split code into internal modes: Input Mode (yt-dlp, image, video, audio), Proc Mode (video, audio, else), Output Mode (direct, bat, clipboard, etc) if beneficial.
+; If folder is selected, first decide among compatible file types what will be processed by cycling and confirming through a tooltip list. Then decide per type what will be done to all.
+; Merge all export options (Direct, .Bat, Clipboard, Custom Args/Command, Enqueue, Merge/Concatenate) into new function Export(), press to cycle and hold to execute.
 ; Dedicate layer to trimming, including decimal trim, trim time in filename, optionally set seek trim independently (no toggling between -ss/-to).
 ; Set Working Directory to wherever the file is for cleaner code, resetting after. (Is this really necessary?)
 ; Implement optional inclusion of trim times into output file name.
@@ -355,11 +353,13 @@ FF_Reset() {
 ; Implement URL support through yt-dlp: Would allow for more flexible Youtube video downloading.
 ; Implement Chunking, outputting in chunks before merging into one (useful in case of interrupt).
 ; Implement the above IN SEPARATE LAYER TO BASIC FUNCTIONS, toggleable by NumpadMult for me.
-; Let all the above work independently, and be able to string into each other with minimal intermediate encoding.
+; Let all the above work independently, and be able to string into each other with minimal intermediate encoding. Let all commands be in one CMD. Warn user of any failure?
 ; Add preset capability, either as functions within the base file or .inis next to it, or both.
 ; Add ability to string together filters with ease, selecting which ones and confirming one by one.
-; Add ability to interpret "flags" in input filename as instructions, i.e "2026_av1.mp4" would be automatically set to AV1 for output.
-; Implement (as framework?) in AHKv2. In doing so, ensure ALL variables start with FF_
+; Add toggleable ability to interpret "flags" in input filename as instructions, i.e "2026_av1.mp4" would be automatically set to AV1 for output.
+; Implement (as framework?) in AHKv2. In doing so, ensure ALL variables start with FF_ (Jul 05 2026 12:10:42AM or AMP_ ?)
+
+
 
 ; I want to structure this better, and have a vague idea what I should do (decoupling things in functions, i.e not hardcoding how to increase/decrease values).
 
@@ -368,7 +368,7 @@ Development has been inactive for a few weeks now. I have a few ideas for how I 
 1: Refactor this codebase some (put all variables into an object or array, whatever more compact form will work, and fix the scope of the functions.) so that v2 conversion is pure translation, meaning less mental overhead.
 2: Put it into AHKv2 without further developing this version.
 
-Right now I've decided to: Moving the bulk of the logic for command assembly from the single function FF_Update() to their respective functions that deal with that stuff to start with anyway. Then FF_Update is cleaner and the overall codebase more readable and maintainable.
+Right now I've decided to: Moving the bulk of the logic for command assembly from the single function FF_Display() to their respective functions that deal with that stuff to start with anyway. Then FF_Display is cleaner and the overall codebase more readable and maintainable.
 (Mar 16 2026 9:34:12PM But I still can't make up my mind confidently without feedback from more experienced devs.)
 
 No need for ternary statements in the command variable, do that prior.
